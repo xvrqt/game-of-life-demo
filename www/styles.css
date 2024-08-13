@@ -1,19 +1,19 @@
 html {
     margin: 0;
     padding: 0;
+    background-color: #444;
 }
 
-body {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
+/* Using a canvas as our background */
+canvas {
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    z-index:-1;
+    position:absolute;
+}
+
 
 /* /* Tiling Background */ */
 /* body { */

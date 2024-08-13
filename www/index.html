@@ -41,8 +41,23 @@
     <!-- Our single style sheet -->
     <link rel="stylesheet" href="/styles.css" />
 
-    <!-- Imports our WASM functions, Runs the program -->
-    <script type="module" src="index.js"></script>
+    <!-- 
+        Test if WebGL is enabled, if so:
+        Import the WASM to run our WebGL canvas
+    -->
+    <script>
+      window.addEventListener("load", () => {
+        const c = document.createElement("canvas");
+        const test = c.getContext("webgl2");
+        if (test instanceof WebGL2RenderingContext) {
+          let head = document.getElementsByTagName("head")[0];
+          let js = document.createElement("Script");
+          js.type = "module";
+          js.src = "index.js";
+          head.appendChild(js);
+        }
+      });
+    </script>
   </head>
   <body>
     <canvas id="canvas"></canvas>
