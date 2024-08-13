@@ -44,6 +44,18 @@ impl Universe {
 
 #[wasm_bindgen]
 impl Universe {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn cells(&self) -> *const Cell {
+        self.cells.as_ptr()
+    }
+
     pub fn tick(&mut self) {
         let mut cells = self.cells.clone();
         for row in 0..self.height {
@@ -96,6 +108,12 @@ impl fmt::Display for Universe {
             write!(f, "\n")?;
         }
         Ok(())
+    }
+}
+
+impl Default for Universe {
+    fn default() -> Universe {
+        Universe::new()
     }
 }
 
