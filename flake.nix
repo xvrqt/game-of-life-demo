@@ -33,7 +33,7 @@
             devShells.default = mkShell {
               buildInputs = [
                 # Rust Nightly Toolchain
-                (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+                ((rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {extensions = ["rust-src"];})
 
                 # Required to create the WASM targets, and pack them for web
                 wasm-pack
@@ -46,12 +46,19 @@
               ];
               CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER = "lld";
               shellHook = ''
-                python3 -m http.server 6969 -d ./www &
-                WEB_PID=$!
-                alias rebuild-wasm='wasm-pack build ${project_path}/wasm-game-of-life --target web --out-dir ${project_path}/www/wasm'
                 clear
-                # Clean up the server on exit
-                trap "kill -9 $WEB_PID" EXIT
+                if pgrep -x python3 >> /dev/null
+                then
+                  echo "Server already running."
+                else
+                  # Start the server, set a trap on exit
+                  python3 -m http.server 6969 -d ./www &
+                  WEB_PID=$!
+                  # Clean up the server on exit
+                  trap "kill -9 $WEB_PID" EXIT
+                fi
+                # Convenience function
+                alias rebuild-wasm='wasm-pack build ${project_path}/wasm-game-of-life --target web --out-dir ${project_path}/www/wasm'
               '';
             };
           }
