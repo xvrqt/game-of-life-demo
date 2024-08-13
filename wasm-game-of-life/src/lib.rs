@@ -1,6 +1,7 @@
 use std::fmt;
 mod utils;
 use wasm_bindgen::prelude::*;
+use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader};
 
 // Log to JS Console in a Browser
 macro_rules! log {
@@ -9,169 +10,147 @@ macro_rules! log {
     }
 }
 
-// An individual cell of the game of life
-#[wasm_bindgen]
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Cell {
-    Dead = 0,
-    Alive = 1,
-}
-
-impl Cell {
-    fn toggle(&mut self) {
-        *self = match *self {
-            Cell::Alive => Cell::Dead,
-            Cell::Dead => Cell::Alive,
-        }
-    }
-}
-
-// The Universe comprised of a grid of Cells
-#[wasm_bindgen]
-pub struct Universe {
-    width: u32,
-    height: u32,
-    cells: Vec<Cell>,
-}
-
-impl Universe {
-    fn get_index(&self, row: u32, column: u32) -> usize {
-        ((row * self.width) + column) as usize
-    }
-
-    fn live_neighbor_count(&self, row: u32, column: u32) -> u8 {
-        let mut count = 0;
-        for delta_row in [self.height - 1, 0, 1].iter().cloned() {
-            for delta_col in [self.width - 1, 0, 1].iter().cloned() {
-                if delta_row == 0 && delta_col == 0 {
-                    continue;
-                }
-
-                let neighbor_row = (row + delta_row) % self.height;
-                let neighbor_col = (column + delta_col) % self.width;
-                let index = self.get_index(neighbor_row, neighbor_col);
-                count += self.cells[index] as u8;
-            }
-        }
-        count
-    }
-}
-
-#[wasm_bindgen]
-impl Universe {
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-
-    pub fn cells(&self) -> *const Cell {
-        self.cells.as_ptr()
-    }
-
-    pub fn tick(&mut self) {
-        let mut cells = self.cells.clone();
-        for row in 0..self.height {
-            for col in 0..self.width {
-                let index = self.get_index(row, col);
-                let cell = self.cells[index];
-                let live_neighbors = self.live_neighbor_count(row, col);
-                let next_cell = match (cell, live_neighbors) {
-                    (Cell::Alive, x) if x < 2 => Cell::Dead,
-                    (Cell::Alive, 2) | (Cell::Alive, 3) => Cell::Alive,
-                    (Cell::Alive, x) if x > 3 => Cell::Dead,
-                    (Cell::Dead, 3) => Cell::Alive,
-                    (otherwise, _) => otherwise,
-                };
-                cells[index] = next_cell;
-            }
-        }
-        self.cells = cells;
-    }
-
-    pub fn toggle_cell(&mut self, row: u32, column: u32) {
-        let index = self.get_index(row, column);
-        self.cells[index].toggle();
-    }
-
-    pub fn all_dead(&mut self) {
-        let size = (self.width * self.height) as usize;
-        self.cells = vec![Cell::Dead; size];
-    }
-
-    pub fn all_alive(&mut self) {
-        let size = (self.width * self.height) as usize;
-        self.cells = vec![Cell::Alive; size];
-    }
-
-    // Random cell generation
-    pub fn new(width: u32, height: u32) -> Universe {
-        utils::set_panic_hook();
-        let cells = (0..(width * height))
-            .map(|_| match js_sys::Math::random() < 0.5 {
-                true => Cell::Alive,
-                false => Cell::Dead,
-            })
-            .collect();
-        Universe {
-            width,
-            height,
-            cells,
-        }
-    }
-
-    pub fn render(&self) -> String {
-        self.to_string()
-    }
-}
-
-impl fmt::Display for Universe {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for line in self.cells.as_slice().chunks(self.width as usize) {
-            for &cell in line {
-                let symbol = if cell == Cell::Dead { '◻' } else { '◼' };
-                write!(f, "{}", symbol)?;
-            }
-            write!(f, "\n")?;
-        }
-        Ok(())
-    }
-}
-
-impl Default for Universe {
-    fn default() -> Universe {
-        Universe::new(64, 64)
-    }
-}
-
-// Called when the wasm module is instantiated
 #[wasm_bindgen(start)]
-fn main() -> Result<(), JsValue> {
-    // Use `web_sys`'s global `window` function to get a handle on the global
-    // window object.
-    let window = web_sys::window().expect("no global `window` exists");
-    let document = window.document().expect("should have a document on window");
-    let body = document.body().expect("document should have a body");
+fn start() -> Result<(), JsValue> {
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document.get_element_by_id("canvas").unwrap();
+    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
 
-    // Manufacture the element we're gonna append
-    let val = document.create_element("p")?;
-    val.set_inner_html("Hello from Rust!");
+    let context = canvas
+        .get_context("webgl2")?
+        .unwrap()
+        .dyn_into::<WebGl2RenderingContext>()?;
 
-    body.append_child(&val)?;
+    let vert_shader = compile_shader(
+        &context,
+        WebGl2RenderingContext::VERTEX_SHADER,
+        r##"#version 300 es
+ 
+        in vec4 position;
+
+        void main() {
+        
+            gl_Position = position;
+        }
+        "##,
+    )?;
+
+    let frag_shader = compile_shader(
+        &context,
+        WebGl2RenderingContext::FRAGMENT_SHADER,
+        r##"#version 300 es
+    
+        precision highp float;
+        out vec4 outColor;
+        
+        void main() {
+            outColor = vec4(1, 1, 1, 1);
+        }
+        "##,
+    )?;
+    let program = link_program(&context, &vert_shader, &frag_shader)?;
+    context.use_program(Some(&program));
+
+    let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
+
+    let position_attribute_location = context.get_attrib_location(&program, "position");
+    let buffer = context.create_buffer().ok_or("Failed to create buffer")?;
+    context.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&buffer));
+
+    // Note that `Float32Array::view` is somewhat dangerous (hence the
+    // `unsafe`!). This is creating a raw view into our module's
+    // `WebAssembly.Memory` buffer, but if we allocate more pages for ourself
+    // (aka do a memory allocation in Rust) it'll cause the buffer to change,
+    // causing the `Float32Array` to be invalid.
+    //
+    // As a result, after `Float32Array::view` we have to be very careful not to
+    // do any memory allocations before it's dropped.
+    unsafe {
+        let positions_array_buf_view = js_sys::Float32Array::view(&vertices);
+
+        context.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &positions_array_buf_view,
+            WebGl2RenderingContext::STATIC_DRAW,
+        );
+    }
+
+    let vao = context
+        .create_vertex_array()
+        .ok_or("Could not create vertex array object")?;
+    context.bind_vertex_array(Some(&vao));
+
+    context.vertex_attrib_pointer_with_i32(
+        position_attribute_location as u32,
+        3,
+        WebGl2RenderingContext::FLOAT,
+        false,
+        0,
+        0,
+    );
+    context.enable_vertex_attrib_array(position_attribute_location as u32);
+
+    context.bind_vertex_array(Some(&vao));
+
+    let vert_count = (vertices.len() / 3) as i32;
+    draw(&context, vert_count);
 
     Ok(())
 }
 
-#[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
+fn draw(context: &WebGl2RenderingContext, vert_count: i32) {
+    context.clear_color(0.0, 0.0, 0.0, 1.0);
+    context.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+    context.draw_arrays(WebGl2RenderingContext::TRIANGLES, 0, vert_count);
 }
 
-#[wasm_bindgen]
-pub fn greet(subject: String) {
-    let string = format!("Hello, {}", subject);
-    alert(&string);
+pub fn compile_shader(
+    context: &WebGl2RenderingContext,
+    shader_type: u32,
+    source: &str,
+) -> Result<WebGlShader, String> {
+    let shader = context
+        .create_shader(shader_type)
+        .ok_or_else(|| String::from("Unable to create shader object"))?;
+    context.shader_source(&shader, source);
+    context.compile_shader(&shader);
+
+    if context
+        .get_shader_parameter(&shader, WebGl2RenderingContext::COMPILE_STATUS)
+        .as_bool()
+        .unwrap_or(false)
+    {
+        Ok(shader)
+    } else {
+        Err(context
+            .get_shader_info_log(&shader)
+            .unwrap_or_else(|| String::from("Unknown error creating shader")))
+    }
+}
+
+pub fn link_program(
+    context: &WebGl2RenderingContext,
+    vert_shader: &WebGlShader,
+    frag_shader: &WebGlShader,
+) -> Result<WebGlProgram, String> {
+    let program = context
+        .create_program()
+        .ok_or_else(|| String::from("Unable to create shader object"))?;
+
+    context.attach_shader(&program, vert_shader);
+    context.attach_shader(&program, frag_shader);
+    context.link_program(&program);
+
+    if context
+        .get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS)
+        .as_bool()
+        .unwrap_or(false)
+    {
+        Ok(program)
+    } else {
+        Err(context
+            .get_program_info_log(&program)
+            .unwrap_or_else(|| String::from("Unknown error creating program object")))
+    }
 }
