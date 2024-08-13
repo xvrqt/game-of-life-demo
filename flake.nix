@@ -27,7 +27,7 @@
           pkgs = import nixpkgs {
             inherit system overlays;
           };
-          project_path = "/home/xvrqt/dev/graphics_webpage";
+          project_path = "/home/xvrqt/dev/game_of_life_webpage";
         in
           with pkgs; {
             devShells.default = mkShell {
@@ -48,7 +48,7 @@
               shellHook = ''
                 python3 -m http.server 6969 -d ./www &
                 WEB_PID=$!
-                alias rebuild-wasm='wasm-pack build ${project_path}/wasm-game-of-life --target web --out-dir ${project_path}/src/wasm'
+                alias rebuild-wasm='wasm-pack build ${project_path}/wasm-game-of-life --target web --out-dir ${project_path}/www/wasm'
                 clear
                 # Clean up the server on exit
                 trap "kill -9 $WEB_PID" EXIT

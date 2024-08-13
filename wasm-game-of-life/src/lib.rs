@@ -25,6 +25,7 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, wasm-game-of-life!");
+pub fn greet(subject: String) {
+    let string = format!("Hello, {}", subject);
+    alert(&string);
 }
