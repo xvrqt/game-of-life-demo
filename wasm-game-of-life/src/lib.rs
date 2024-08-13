@@ -2,6 +2,13 @@ use std::fmt;
 mod utils;
 use wasm_bindgen::prelude::*;
 
+// Log to JS Console in a Browser
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 // An individual cell of the game of life
 #[wasm_bindgen]
 #[repr(u8)]
@@ -9,6 +16,15 @@ use wasm_bindgen::prelude::*;
 pub enum Cell {
     Dead = 0,
     Alive = 1,
+}
+
+impl Cell {
+    fn toggle(&mut self) {
+        *self = match *self {
+            Cell::Alive => Cell::Dead,
+            Cell::Dead => Cell::Alive,
+        }
+    }
 }
 
 // The Universe comprised of a grid of Cells
@@ -76,14 +92,28 @@ impl Universe {
         self.cells = cells;
     }
 
-    pub fn new() -> Universe {
-        let width = 64;
-        let height = 64;
+    pub fn toggle_cell(&mut self, row: u32, column: u32) {
+        let index = self.get_index(row, column);
+        self.cells[index].toggle();
+    }
+
+    pub fn all_dead(&mut self) {
+        let size = (self.width * self.height) as usize;
+        self.cells = vec![Cell::Dead; size];
+    }
+
+    pub fn all_alive(&mut self) {
+        let size = (self.width * self.height) as usize;
+        self.cells = vec![Cell::Alive; size];
+    }
+
+    // Random cell generation
+    pub fn new(width: u32, height: u32) -> Universe {
+        utils::set_panic_hook();
         let cells = (0..(width * height))
-            .map(|i| match i {
-                i if i % 2 == 0 => Cell::Alive,
-                i if i % 7 == 0 => Cell::Alive,
-                _ => Cell::Dead,
+            .map(|_| match js_sys::Math::random() < 0.5 {
+                true => Cell::Alive,
+                false => Cell::Dead,
             })
             .collect();
         Universe {
@@ -113,7 +143,7 @@ impl fmt::Display for Universe {
 
 impl Default for Universe {
     fn default() -> Universe {
-        Universe::new()
+        Universe::new(64, 64)
     }
 }
 

@@ -1,5 +1,4 @@
 import init, { Universe, Cell } from "./wasm/wasm_game_of_life.js";
-// import { memory } from "./wasm/wasm_game_of_life_bg.wasm";
 
 async function run() {
   // Load the WASM so we can use the functions defined therein
@@ -12,7 +11,7 @@ async function run() {
   const DEAD_COLOR = "#FFFFFF";
 
   // Create a new universe in WASM memory
-  const universe = Universe.new();
+  const universe = Universe.new(60, 60);
   const width = universe.width();
   const height = universe.height();
 
@@ -21,13 +20,53 @@ async function run() {
   const ctx = canvas.getContext("2d");
   canvas.height = (CELL_SIZE + 1) * (height + 1);
   canvas.width = (CELL_SIZE + 1) * (width + 1);
+  // Toggle on click
+  canvas.addEventListener("click", (event) => {
+    const boundingRect = canvas.getBoundingClientRect();
 
-  // Main Render Loop
-  const renderLoop = () => {
-    universe.tick();
+    const scaleX = canvas.width / boundingRect.width;
+    const scaleY = canvas.height / boundingRect.height;
+
+    const canvasLeft = (event.clientX - boundingRect.left) * scaleX;
+    const canvasTop = (event.clientY - boundingRect.top) * scaleY;
+
+    const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), height - 1);
+    const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), width - 1);
+
+    universe.toggle_cell(row, col);
 
     drawGrid();
     drawCells();
+  });
+
+  // Main Render Loop
+  let paused = false;
+  let last_tick_time = new Date();
+  document.onkeypress = (event) => {
+    if (event.code == "Space") {
+      paused = !paused;
+    } else if (event.code == "Digit1") {
+      console.log("girls");
+      universe.all_alive();
+      drawGrid();
+      drawCells();
+    } else if (event.code == "Digit0") {
+      console.log("gay");
+      universe.all_dead();
+      drawGrid();
+      drawCells();
+    }
+  };
+  const renderLoop = () => {
+    let current_time = new Date();
+    let time_elapsed = current_time - last_tick_time;
+
+    if (!paused && time_elapsed > 500) {
+      universe.tick();
+      drawGrid();
+      drawCells();
+      last_tick_time = current_time;
+    }
 
     requestAnimationFrame(renderLoop);
   };
