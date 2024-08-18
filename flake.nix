@@ -52,7 +52,7 @@
                   echo "Server already running."
                 else
                   # Start the server, set a trap on exit
-                  python3 -m http.server 6969 -d ./www &
+                  python3 -m http.server 6969 -d ./www > logs/server.log 2&>1 &
                   WEB_PID=$!
                   # Clean up the server on exit
                   trap "kill -9 $WEB_PID" EXIT

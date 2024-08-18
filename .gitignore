@@ -12,3 +12,6 @@ nohup.out
 
 # Ignore what direnv creates
 .direnv/
+
+# Ignore the local log directory
+logs/
