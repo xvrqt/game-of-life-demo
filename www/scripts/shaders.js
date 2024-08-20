@@ -1,4 +1,88 @@
-export const fragment_shader_source = `#version 300 es 
+// SDF Functions
+const frag_sdf_source = `
+// SDF for a Rounded Rectangle
+float sdRoundBox(vec3 p) {
+  vec3 b = vec3(BLOCK_SIZE);
+  vec3 q = abs(p) - b + BLOCK_ROUNDING;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - BLOCK_ROUNDING;
+}
+
+int calculateCellIndex(ivec2 id) {
+  // Calculate Cell index that maps onto the GoL
+  int x = ((grid_dimensions.x - 2) / 2) + id.x; 
+  int y = (grid_dimensions.y / 2) - id.y; 
+  return x + grid_dimensions.x * y;
+}
+
+// Returns the distance to closest block to point 'p' in the 
+// grid of blocks.
+vec2 gol_grid_distance(vec3 position) {
+  // Add the block size to the point to center it
+  position += BLOCK_SIZE;
+  // Calculate spacing between block centers
+  float spacing = 2.0 * BLOCK_SIZE + GRID_GUTTER_SIZE;
+  // Round the position into discrete areas of space
+  ivec2 id = ivec2(round(position.xy / spacing));
+  // Determine if the area is above/below the axis line
+  ivec2 o = sign(ivec2(position.xy - spacing) * id);
+  float closest_distance = 1e20;
+  // A 1D index of the block that maps onto the GoL simulation
+  int index = 0;
+  // We only need to check blocks in the x/y directions 
+  for (int j = 0; j < 2; j++)
+    for (int i = 0; i < 2; i++) {
+      // ID of block to check if it's closer
+      ivec2 rid = id + ivec2(i, j) * o;
+      // Limit repetition to within the grid dimensions
+      rid = clamp(rid, -(grid_dimensions - 2) / 2, grid_dimensions / 2);
+      // Block center
+      vec3 block_location = position - spacing * vec3(rid, 0.0);
+
+      // Cell Index
+      int cell_index = calculateCellIndex(rid);
+
+      // Adjust position of some blocks based on ID
+      float a = 0.05 * sin(float(length(vec2(rid))) + time * 0.001);
+      block_location.z += a;
+
+      float block_distance = sdRoundBox(block_location); 
+      if (block_distance < closest_distance) {
+        closest_distance = block_distance;
+        index = cell_index;
+      }
+    }
+  return vec2(closest_distance, index);
+}
+
+// Distance from the ground plane
+#define GROUND_PLANE_LOCATION 0.0
+float ground_plane_distance(vec3 p) {
+  float distance = abs(p.z - GROUND_PLANE_LOCATION);
+  distance -= abs(sin((time + p.x + p.y)/1000.0)) * (0.125 * BLOCK_SIZE); 
+  return distance;
+}
+`;
+
+// Ray struct definition & generates rays for marching
+const frag_ray_source = `
+struct Ray {
+  vec3 origin; 
+  vec3 direction; 
+};
+
+// Generates a ray direction from fragment coordinates
+Ray generatePerspectiveRay(vec2 resolution, vec2 fragCoord) {
+  // Normalized Coordinates [-1,1]
+  vec2 st = ((gl_FragCoord.xy * 2.0) - resolution.xy) / resolution.y;
+  // Ray Direction (+z is "into the screen")
+  vec3 rd = normalize(vec3(st, 1));
+  return Ray(DEFAULT_RAY_ORIGIN, rd);
+}
+
+`;
+
+export const fragment_shader_source =
+  `#version 300 es 
 precision highp float;
 
 #define PI 3.1415926535
@@ -32,48 +116,28 @@ float GRID_GUTTER_SIZE = 1.0;
 float BLOCK_SIZE = 0.5;
 // How the corners and edges of the boxes are rounds (will be updated)
 float BLOCK_ROUNDING = 0.1;
-// Sets up the number of blocks to fill the screen, and meet
-// the minimum # of blocks requirement. 'ratio' is the x/y resolution ratio.
 void set_grid_dimensions(float ratio) {
   // Get minimum dimension
-  int min = min(grid_dimensions.x, grid_dimensions.y);
-  float min_dimension = float(min);
-  float nom = VIEW_SCALE; // Fill the view box from [-1,1]
+  int min_dim = min(grid_dimensions.x, grid_dimensions.y);
+  float min_dimension = float(min_dim);
+  // If the screen is taller than wide, don't resize blocks to fit
+  float nom = VIEW_SCALE * min(ratio, 1.0); 
   // Screen needs to fit N blocks and N+1 gutters
   float denom = (min_dimension + 1.0) + (GUTTER_RATIO * min_dimension);
 
-  // Wide Screen
-  if (ratio > 1.0) { 
-    // GRID_DIMENSIONS.x = round(ratio * GRID_MIN_DIMENSION);
-    // // Formula requires an even number of squares
-    // GRID_DIMENSIONS.x -= float(int(GRID_DIMENSIONS.x) % 2);
-  } else if (ratio < 1.0) { // Tall Screen
-    nom *= ratio; // Adjust by ratio if the ratio is < 1
-    // GRID_DIMENSIONS.y = round((1.0/ratio) * GRID_MIN_DIMENSION);
-    // // Formula requires an even number of squares
-    // GRID_DIMENSIONS.y -= float(int(GRID_DIMENSIONS.y) % 2);
-  }
   BLOCK_SIZE = (nom * GUTTER_RATIO) / denom;
   BLOCK_ROUNDING = BLOCK_SIZE * ROUNDING_RATIO;
   GRID_GUTTER_SIZE = nom / denom;
 }
 
-struct Ray {
-  vec3 origin; 
-  vec3 direction; 
-};
-
-// Generates a ray direction from fragment coordinates
-Ray generatePerspectiveRay(vec2 resolution, vec2 fragCoord) {
-  // Normalized Coordinates [-1,1]
-  vec2 st = ((gl_FragCoord.xy * 2.0) - resolution.xy) / resolution.y;
-  // Ray Origin
-  vec3 ro = DEFAULT_RAY_ORIGIN;
-  // Ray Direction (+z is "into the screen")
-  vec3 rd = normalize(vec3(st, 1));
-  return Ray(ro, rd);
-}
-
+` +
+  // Depends: BLOCK_SIZE & SETUP
+  // Defines: SDF from scene objects
+  frag_sdf_source +
+  // Depends: --
+  // Defines: Ray (struct), Perspective Ray Generation
+  frag_ray_source +
+  `
 // An "Object" in our scene
 struct SceneObj {
   // How far the object is from the ray origin
@@ -87,81 +151,15 @@ struct SceneObj {
   int id;
 };
 
-// SDF for a Rounded Rectangle
-float sdRoundBox(vec3 p) {
-  vec3 b = vec3(BLOCK_SIZE);
-  vec3 q = abs(p) - b + BLOCK_ROUNDING;
-  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - BLOCK_ROUNDING;
-}
-
-
-// Returns the distance to closest block to point 'p' in the 
-// grid of blocks.
-vec2 gol_grid_distance(vec3 p) {
-  // Add the block size to the point to center it
-  p += BLOCK_SIZE;
-  // Calculate spacing between block centers
-  float spacing = 2.0 * BLOCK_SIZE + GRID_GUTTER_SIZE;
-  // Round the position into discrete areas of space
-  ivec2 id = ivec2(round(p.xy / spacing));
-  // Determine if the area is above/below the axis line
-  ivec2 o = sign(ivec2(p.xy - spacing) * id);
-  float d = 1e20;
-  // A 1D index of the block that maps onto the GoL simulation
-  int index = 0;
-  // We only need to check blocks in the x/y directions because our grid is only 2D
-  for (int j = 0; j < 2; j++)
-    for (int i = 0; i < 2; i++) {
-      // CONTINUE CHECK @ 0,0
-      ivec2 rid = id + ivec2(i, j) * o;
-      // Limit repetition to within the grid dimensions
-      rid = clamp(rid, -(grid_dimensions - 2) / 2, grid_dimensions / 2);
-      // Box center
-      vec3 r = p - spacing * vec3(rid, 0.0);
-      // Calculate 1D box index that maps onto the GoL
-      int z_x = ((grid_dimensions.x - 2) / 2) + rid.x; 
-      int z_y = (grid_dimensions.y / 2) - rid.y; 
-      int z = z_x + int(grid_dimensions.x) * z_y;
-      // Adjust position of some blocks based on ID
-      float a = 0.15 * sin(float(length(vec2(rid.xy))) + time * 0.001);
-      if (cells[z] == 1u) {
-        a *= 0.5;
-      }
-      r.z += a;
-      float x = sdRoundBox(r); 
-
-      if (x < d) {
-        d = x;
-        index = z;
-      }
-    }
-  return vec2(d,index);
-}
-
-// Distance from the ground plane
-#define GROUND_PLANE_LOCATION 0.0
-float ground_plane_distance(vec3 p) {
-  float distance = abs(p.z - GROUND_PLANE_LOCATION);
-  distance -= abs(sin((time + p.x + p.y)/1000.0)) * (0.125 * BLOCK_SIZE); 
-  return 1e+5;
-  // return distance;
-}
-
+#define OBJ_GROUND 0
+#define OBJ_BLOCK 1
 // Closest object in the scene, from point 'p'
 SceneObj nearestObject(vec3 position) {
-  float ground_distance = ground_plane_distance(position);
-  // vec2(distance, block_id)
+  // vec2(distance, cell_id)
   vec2 grid = gol_grid_distance(position);
   int block_id = int(grid.y);
   float grid_distance = grid.x;
-  
-  if (false && ground_distance < grid_distance) {
-      return SceneObj(ground_distance, 0, 0);
-  } else if (grid_distance < ground_distance) {
-      return SceneObj(grid_distance, 1, block_id);
-  } else {
-    return SceneObj(1e+5, -1, -1);
-  }
+  return SceneObj(grid_distance, OBJ_BLOCK, block_id);
 }
 
 #define MAX_STEPS 300
@@ -202,7 +200,7 @@ struct PBRMat {
 PBRMat materials[3] = PBRMat[3](
     // Ground Plane
     PBRMat(
-        vec3(0.0),
+        vec3(0.8, 0.1, 0.5),
         0.0,
         0.9,
         0.1,
@@ -211,10 +209,10 @@ PBRMat materials[3] = PBRMat[3](
     ),
     // Block (Inactive)
     PBRMat(
-        // vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
-        vec3(0.05),
+        vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
+        // vec3(0.05),
         1.0,
-        0.01,
+        0.1,
         0.1,
         0.0,
         0.3
@@ -232,9 +230,11 @@ PBRMat materials[3] = PBRMat[3](
 
 // Get the distance from an object to a point
 float getObjectSD(int type, int id, vec3 p) {
-  if (type == 0) { return ground_plane_distance(p); }
-  else if (type == 1) { return gol_grid_distance(p).x; } // returns: vec2(distance, id_of_block)
-  return MAX_MARCH_DISTANCE;
+  float distance = 1e20;
+  if (type == 0) { distance = ground_plane_distance(p); }
+  // returns: vec2(distance, block_id)
+  else if (type == 1) { distance = gol_grid_distance(p).x; }   
+  return distance;
 }
 
 // This could be made better since most of the blocks are flat/have trivial normals
@@ -295,7 +295,6 @@ Ray light_ray(vec3 position, Light light) {
     return Ray(position, direction);
 }
 
-
 // Distance from a point to a light
 float light_dist(vec3 position, Light light) 
 { 
@@ -337,7 +336,6 @@ vec3 light_radiance(Light light, vec3 position) {
     }
     return light.color * intensity_at_point;
 }
-
 
 // Physically based rendering for a 'surface', hit by a 'ray' from a 'light'
 vec3 PBR(Surface surface, Ray ray, Light light, out float reflectance) {
@@ -384,8 +382,6 @@ vec3 PBR(Surface surface, Ray ray, Light light, out float reflectance) {
     // Update reflectance term
     reflectance = length(F);
     return Fa + (Fs + Fd) * light_radiance * LoN;
-
-
 }
 
 vec3 emissive_radiance(Surface surface, vec3 position) {
@@ -427,12 +423,25 @@ vec3 direct_illumination(in Surface surface, in Ray ray, out float reflectance) 
 #define GROUND_PLANE_MATERIAL 0
 #define BLOCK_MATERIAL 1
 #define BLOCK_ACTIVE_MATERIAL 2
+uint getbits(uint value, uint offset, uint n) {
+  uint max_n = 32u;
+  if (offset >= max_n)
+    return 0u; /* value is padded with infinite zeros on the left */
+  value >>= offset; /* drop offset bits */
+  if (n >= max_n)
+    return value; /* all  bits requested */
+  uint mask = (1u << n) - 1u; /* n '1's */
+  return value & mask;
+}
 PBRMat getObjectMaterial(int type, int id) {
     // Default to ground plane
     PBRMat material = materials[GROUND_PLANE_MATERIAL];
     // Block
     if (type == 1) {
-      if (cells[id] == 1u) {
+        uint u8_id = uint(id) / 4u;
+        uint offset = uint(id) % 4u;
+        offset = offset * 7u + offset;
+      if (getbits(cells[u8_id], offset, 8u) == 1u) {
         material = materials[BLOCK_ACTIVE_MATERIAL]; 
       } else { material = materials[BLOCK_MATERIAL]; }
     }
@@ -496,7 +505,6 @@ vec3 march(in Ray input_ray) {
 
   return final_color; 
 }
-
 
 float sdSmoothUnion(float d1, float d2, float k) {
     float h = clamp(0.5 + 0.5 * (d2-d1) / k, 0.0, 1.0);

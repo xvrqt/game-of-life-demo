@@ -29,8 +29,8 @@ async function run() {
 
   // Calculate the Game of Life cell grid dimensions
   let [width, height] = calculateGridDimensions(canvas);
-  console.log(width, height);
   universe = Universe.new(width, height);
+  console.log(width, height);
   console.log(universe);
 
   // Initialize Uniforms
@@ -42,6 +42,7 @@ async function run() {
   enableCanvasWindowResizeEvent(gl, program, "resolution", () => {
     let [width, height] = calculateGridDimensions(canvas);
     updateUniformGridDimension(gl, program, width, height);
+    draw(gl);
   });
   updateUniformGridDimension(gl, program, width, height);
 
@@ -76,11 +77,11 @@ function renderLoop(gl, program, universe, wasm) {
   // Update the simulation every second
   if (!paused && time_elapsed_since_last_tick > 1000) {
     last_tick_time = current_time;
-    universe.tick();
+    // universe.tick();
     updateActiveBlocks(gl, program, universe, wasm.memory);
   }
   // Draw every frame
-  if (!paused && time_elapsed_since_last_frame >= min_frame_time) {
+  if (time_elapsed_since_last_frame >= min_frame_time) {
     last_frame_time = current_time;
     updateTimeUniform(gl, program, time_elapsed);
     draw(gl);
@@ -123,10 +124,15 @@ function updateActiveBlocks(gl, program, universe, memory) {
   const height = universe.height();
   const width = universe.width();
   const cells_ptr = universe.cells();
-  const cells = new Uint8Array(memory.buffer, cells_ptr, width * height);
-  // console.log(cells);
+  console.log(width, height);
+  const cells = new Uint32Array(memory.buffer, cells_ptr, (width * height) / 4);
+
+  console.log(cells);
   let cells_location = gl.getUniformLocation(program, "cells");
-  gl.uniform1uiv(cells_location, cells, 0, cells.length);
+  gl.uniform1uiv(cells_location, cells);
+  // let lol = new Uint32Array(cells);
+  // console.log(lol);
+  // gl.uniform1uiv(cells_location, lol);
 }
 
 function updateTimeUniform(gl, program, secs_elapsed) {
