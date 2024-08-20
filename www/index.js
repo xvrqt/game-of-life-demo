@@ -1,4 +1,4 @@
-import init from "./wasm/wasm_game_of_life.js";
+import init, { Universe, Cell } from "./wasm/wasm_game_of_life.js";
 
 async function run() {
   // Load the WASM so we can use the functions defined therein
@@ -26,10 +26,25 @@ async function run() {
 
   // Set Uniforms
   updateResolutionUniform(gl, program);
+  canvasResize(gl, program);
+
+  const min_grid_dimension = 8;
+  const xy_ratio = (1.0 * canvas.width) / canvas.height;
+  let width = min_grid_dimension;
+  let height = min_grid_dimension;
+  if (xy_ratio > 1) {
+    // Wide Screen
+    width = Math.round(min_grid_dimension * xy_ratio);
+  } else if (xy_ratio < 1) {
+    // Tall Screen
+    height = Math.round(min_grid_dimension * xy_ratio);
+  }
+  console.log(width, height, xy_ratio);
+  let universe = Universe.new(width, height);
+  console.log(universe);
 
   // We just draw one triangle
-  canvasResize(gl, program);
-  renderLoop(gl, program);
+  renderLoop(gl, program, universe, wasm);
 
   // Add listener to update the canvas on window resize
   window.addEventListener("resize", () => {
@@ -41,19 +56,33 @@ async function run() {
 let paused = false;
 let start_time = Date.now();
 let last_tick_time = Date.now();
-function renderLoop(gl, program) {
+function renderLoop(gl, program, universe, wasm) {
   let current_time = Date.now();
   let time_elapsed = current_time - start_time;
   let time_elapsed_since_last_tick = current_time - last_tick_time;
 
-  if (!paused && time_elapsed_since_last_tick > 500) {
-    updateTimeUniform(gl, program, time_elapsed);
-    draw(gl);
+  if (!paused && time_elapsed_since_last_tick > 1000) {
+    // universe.tick();
+    updateActiveBlocks(gl, program, universe, wasm.memory);
     last_tick_time = current_time;
   }
+  if (!paused && time_elapsed > 1000 / 60) {
+    updateTimeUniform(gl, program, time_elapsed);
+    draw(gl);
+  }
   requestAnimationFrame(() => {
-    renderLoop(gl, program);
+    renderLoop(gl, program, universe, wasm);
   });
+}
+
+function updateActiveBlocks(gl, program, universe, memory) {
+  const height = universe.height();
+  const width = universe.width();
+  const cells_ptr = universe.cells();
+  const cells = new Uint8Array(memory.buffer, cells_ptr, width * height);
+  console.log(cells);
+  let cells_location = gl.getUniformLocation(program, "cells");
+  gl.uniform1uiv(cells_location, cells, 0, cells.length);
 }
 
 function canvasResize(gl, program) {
@@ -95,6 +124,37 @@ function resizeCanvasToDisplaySize(gl) {
   return needResize;
 }
 
+// Compile Shaders
+function createShader(gl, type, source) {
+  var shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+  if (success) {
+    return shader;
+  }
+
+  console.warn(gl.getShaderInfoLog(shader));
+  gl.deleteShader(shader);
+}
+
+function createProgram(gl, vertexShader, fragmentShader) {
+  var program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  var success = gl.getProgramParameter(program, gl.LINK_STATUS);
+  if (success) {
+    return program;
+  }
+
+  console.log(gl.getProgramInfoLog(program));
+  gl.deleteProgram(program);
+}
+
+// Let the show begin!
+run();
+
 const vertex_shader_source = `#version 300 es
         in vec4 position;
         out vec2 texcoords; // [0,1] st coordinates 
@@ -110,8 +170,11 @@ const fragment_shader_source = `#version 300 es
 precision highp float;
 
 #define PI 3.1415926535
-#define DEFAULT_RAY_ORIGIN  vec3(0.0, 0.0, -2.0)
+#define RGB /255.0
+#define DEFAULT_RAY_ORIGIN  vec3(0.0, 0.0, -8.0)
 
+// Cells
+uniform uint cells[64];
 // The size of the screen in pixels
 uniform vec2 resolution;
 // Elapsed time in miliseconds 
@@ -124,9 +187,9 @@ uniform float time;
 // Blocks are 4x the size of the space between them
 #define GUTTER_RATIO 4.0
 // Corners of blocks are rounded at 25%
-#define ROUNDING_RATIO 0.25
+#define ROUNDING_RATIO 0.5
 // The minimum grid size in either (x,y) direction
-#define GRID_MIN_DIMENSION 16.0
+#define GRID_MIN_DIMENSION 8.0
 
 // Spacing between blocks (will be updated)
 float GRID_GUTTER_SIZE = 1.0;
@@ -139,7 +202,7 @@ vec3 GRID_DIMENSIONS = vec3(GRID_MIN_DIMENSION, GRID_MIN_DIMENSION, 1.0);
 // Sets up the number of blocks to fill the screen, and meet
 // the minimum # of blocks requirement. 'ratio' is the x/y resolution ratio.
 void set_grid_dimensions(float ratio) {
-  float nom = 2.0; // Fill the view box from [-1,1]
+  float nom = 8.0; // Fill the view box from [-1,1]
   // Screen needs to fit N blocks and N+1 gutters
   float denom = (GRID_MIN_DIMENSION + 1.0) + (GUTTER_RATIO * GRID_MIN_DIMENSION);
 
@@ -160,8 +223,8 @@ void set_grid_dimensions(float ratio) {
 }
 
 struct Ray {
-  vec3 ro; // Ray Origin
-  vec3 rd; // Ray Direction
+  vec3 origin; 
+  vec3 direction; 
 };
 
 // Generates a ray direction from fragment coordinates
@@ -195,37 +258,6 @@ float sdRoundBox(vec3 p) {
   return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - BLOCK_ROUNDING;
 }
 
-// Repeat an SDF Rounded Rect Every 's' units
-// Stops repeating after 'size' repetitions in 
-// each dimension. *ONLY WORKS FOR EVEN NUMBERS*
-vec2 limited_repeated(vec3 p, vec3 size, float s) {
-  p += BLOCK_SIZE;
-  vec3 id = round(p / s);
-  vec3  o = sign(p - s * id);
-  float d = 1e20;
-  int index = 0;
-  for (int j = 0; j < 2; j++)
-    for (int i = 0; i < 2; i++)
-    {
-      vec3 rid = id + vec3(i, j, 0) * o;
-      // limited repetition
-      rid = clamp(rid, -(size - 2.0) * 0.5, (size - 0.0) * 0.5);
-      vec3 r = p - s * rid;
-      int z = int(round(rid.x)) * int(round(rid.y));
-      int t = (int(time / 1000.) % 32) + 1;
-      if (z % t == 0) {
-        r.z -= 0.05;
-      }
-      float x = sdRoundBox(r);
-
-      if (x < d) {
-        d = x;
-
-        index = int(round(rid.x)) * int(round(rid.y));
-      }
-    }
-  return vec2(d,index);
-}
 
 // Returns the distance to closest block to point 'p' in the 
 // grid of blocks.
@@ -237,24 +269,27 @@ vec2 gol_grid_distance(vec3 p) {
   vec3  o = sign(p - spacing * id);
   float d = 1e20;
   int index = 0;
+  // We only need to check blocks in the x/y directions because our grid is only 2D
   for (int j = 0; j < 2; j++)
-    for (int i = 0; i < 2; i++)
-    {
+    for (int i = 0; i < 2; i++) {
       vec3 rid = id + vec3(i, j, 0) * o;
       // limited repetition
       rid = clamp(rid, -(GRID_DIMENSIONS - 2.0) * 0.5, (GRID_DIMENSIONS - 0.0) * 0.5);
       vec3 r = p - spacing * rid;
-      int z = int(round(rid.x)) * int(round(rid.y));
-      int t = (int(time / 1000.) % 32) + 1;
-      if (z % t == 0) {
-        r.z -= 0.05;
+      int z_x = (int(rid.x) + int((GRID_DIMENSIONS.x - 2.0) * 0.5));
+      int z_y = (int(rid.y) + int((GRID_DIMENSIONS.y - 2.0) * 0.5));
+      int z = z_x + int(GRID_DIMENSIONS.x) * z_y;
+      z /= 4;
+      //z_mod = z % 4;
+      // Adjust position of some blocks based on ID
+      if (cells[z] == 1u) {
+        r.z += 0.05;
       }
       float x = sdRoundBox(r); 
 
       if (x < d) {
         d = x;
-
-        index = int(round(rid.x)) * int(round(rid.y));
+        index = z;
       }
     }
   return vec2(d,index);
@@ -263,21 +298,25 @@ vec2 gol_grid_distance(vec3 p) {
 // Distance from the ground plane
 #define GROUND_PLANE_LOCATION 0.0
 float ground_plane_distance(vec3 p) {
-  return abs(p.z - GROUND_PLANE_LOCATION);
+  float distance = abs(p.z - GROUND_PLANE_LOCATION);
+  distance -= abs(sin((time + p.x + p.y)/1000.0)) * (0.125 * BLOCK_SIZE); 
+  return distance;
 }
 
 // Closest object in the scene, from point 'p'
-SceneObj sceneSDF(vec3 p) {
-  float ground_distance = ground_plane_distance(p);
-  // (distance, block_id)
-  vec2 grid = gol_grid_distance(p);
+SceneObj nearestObject(vec3 position) {
+  float ground_distance = ground_plane_distance(position);
+  // vec2(distance, block_id)
+  vec2 grid = gol_grid_distance(position);
+  int block_id = int(grid.y);
   float grid_distance = grid.x;
-  int grid_id = int(grid.y);
   
-  if (ground_distance < grid_distance) {
+  if (false && ground_distance < grid_distance) {
       return SceneObj(ground_distance, 0, 0);
   } else if (grid_distance < ground_distance) {
-      return SceneObj(grid_distance, 1, grid_id);
+      return SceneObj(grid_distance, 1, block_id);
+  } else {
+    return SceneObj(1e+5, -1, -1);
   }
 }
 
@@ -286,11 +325,13 @@ SceneObj sceneSDF(vec3 p) {
 #define MARCH_ACCURACY 1e-5
 // Beyond this distance we stop the march
 #define MAX_MARCH_DISTANCE 1e+5
-SceneObj ray_march(Ray ray) {
+// Move a ray forward until it intersects with an object
+SceneObj ray_march(in Ray ray) {
     float distance = 0.0;
     for (int i = 0; i < MAX_STEPS; i++) {
       // Find the closest object to the ray
-	  SceneObj object = sceneSDF(ray.ro + distance * ray.rd);
+      vec3 position = ray.origin + (distance * ray.direction);
+	  SceneObj object = nearestObject(position);
 	  if (object.dist <= MARCH_ACCURACY) {
         // We're done, return the object
 	    return SceneObj(distance, object.type, object.id);
@@ -301,17 +342,48 @@ SceneObj ray_march(Ray ray) {
 	    distance += object.dist;
       }
     }
-    // If Never hit anything
+    // If the ray doesn't hit anything
     return SceneObj(MAX_MARCH_DISTANCE,-1,-1);
 }
 
 // Cook-Torrance BRDF Material Model
 struct PBRMat {
   vec3 color;
-  float roughness;
   float metallic;
-  float ao;
+  float roughness;
+  float reflectance;
+  float emissive;
+  float ambient_occlusion;
 };
+PBRMat materials[3] = PBRMat[3](
+    // Ground Plane
+    PBRMat(
+        vec3(0.0),
+        0.0,
+        0.9,
+        0.1,
+        0.0,
+        0.3
+    ),
+    // Block (Inactive)
+    PBRMat(
+        vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
+        0.0,
+        0.1,
+        0.1,
+        0.0,
+        0.3
+    ),
+    // Block (Active)
+    PBRMat(
+        vec3(255.0 RGB, 105.0 RGB, 180.0 RGB),
+        0.0,
+        0.9,
+        0.9,
+        5.0,
+        0.3
+    )
+);
 
 // Get the distance from an object to a point
 float getObjectSD(int type, int id, vec3 p) {
@@ -350,202 +422,250 @@ struct Surface {
   PBRMat mat; // material
 };
 
-#define NUM_LIGHTS 2
+#define DIRECTIONAL_LIGHT 0
+#define POSITIONAL_LIGHT 1
+// A light source in the scene
 struct Light 
 {
-    int type; // 0 dir light, 1 point light
-    vec3 dir; // directionnal light
-    vec3 center; // point light
-    float intensity; // 1 default
-    vec3 color; // light color
+    // 0 -> Directional Light
+    // 1 -> Point Light
+    int type; 
+    // 'position' for a point light
+    // 'direction' vector for directional light
+    vec3 pos_dir_vec;
+    vec3 color; 
+    float intensity;
 };
-Ray light_ray(vec3 ro, Light l) //computes ro to light source ray
-{
-    if(l.type == 0)
-        return Ray(ro,normalize(l.dir));
-    else if(l.type == 1)
-        return Ray(ro,normalize(l.center - ro));
+// White directional light, pointing away from camera
+Light lights[1] = Light[1](Light(POSITIONAL_LIGHT, vec3(0.0, 0.0, -4.0), vec3(255.0 RGB, 255.0 RGB, 255.0 RGB), 32.0));
 
-    return Ray(ro,vec3(1));
+// Vector from position towards the light
+Ray light_ray(vec3 position, Light light) {
+    vec3 direction = vec3(0.0);
+    if(light.type == 0) { // Directional Light
+        direction = normalize(light.pos_dir_vec);
+    } else if(light.type == 1) { // Positional Light
+        direction = normalize(light.pos_dir_vec - position);
+    }
+    return Ray(position, direction);
 }
 
-float light_dist(vec3 ro, Light l) //computes distance to light
+
+// Distance from a point to a light
+float light_dist(vec3 position, Light light) 
 { 
-    if(l.type == 0)
-         return MAX_MARCH_DISTANCE;
-    else if(l.type == 1)
-        return length(l.center - ro);
-
-    return MAX_MARCH_DISTANCE;
+    // Directional Lights are 'infinitely' far away
+    float distance = MAX_MARCH_DISTANCE;
+    // Point Light
+    if(light.type == 1) { distance = length(light.pos_dir_vec - position); }
+    return distance;
 }
 
-Light lights[2] = Light[2](Light(0,vec3(0,0,-1),vec3(0.0,0.0,-1.0), 1.,vec3(1.,1.,1.)), Light(1,vec3(0),vec3(0.0,0.0,-1.0),100.,vec3(1.)));
-
-float DistributionGGX(vec3 N, vec3 H, float roughness)
-{
-    float a      = roughness*roughness;
-    float a2     = a*a;
-    float NdotH  = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH*NdotH;
-
-    float nom   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return nom / denom;
+// Shadowing, Masking for specular reflection
+// You should calculate NoH & NoV and pass that into each function
+float V_SmithGGXCorrelatedFast(float roughness, float LoN, float VoN) {
+    
+    float GGXV = LoN * (VoN * (1.0 - roughness) + roughness);
+    float GGXL = VoN * (LoN * (1.0 - roughness) + roughness);
+    return 0.5 / (GGXV + GGXL);
 }
 
-float GeometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r*r) / 8.0;
-
-    float nom   = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return nom / denom;
+#define HIGHP_FLT_MAX    65504.0
+#define saturateHighp(x) min(x, HIGHP_FLT_MAX)
+float D_GGX(float roughness, float NoH, vec3 NxH) {
+    float a = NoH * roughness;
+    float k = roughness / (dot(NxH, NxH) + (a * a));
+    float d = (k * k * (1.0 / PI));
+    return saturateHighp(d);
 }
 
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2  = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1  = GeometrySchlickGGX(NdotL, roughness);
-
-    return ggx1 * ggx2;
+vec3 F_Schlick(float VoH, vec3 f0, float f90) {
+    return f0 + (vec3(f90) - f0) - pow(1.0 - VoH, 5.0);
 }
 
-vec3 fresnelSchlick(float cosTheta, vec3 F0)
-{
-    return F0 + (1.0 - F0)*pow((1.0 + 0.000001/*avoid negative approximation when cosTheta = 1*/) - cosTheta, 5.0);
-}
-
-vec3 computeReflectance(vec3 N, vec3 Ve, vec3 F0, vec3 albedo, vec3 L, vec3 H, vec3 light_col, float intensity, float metallic, float roughness) {
-    vec3 radiance =  light_col * intensity; //Incoming Radiance
-
-    // cook-torrance brdf
-    float NDF = DistributionGGX(N, H, roughness);
-    float G   = GeometrySmith(N, Ve, L,roughness);
-    vec3 F    = fresnelSchlick(max(dot(H, Ve), 0.0), F0);
-
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metallic;
-
-    vec3 nominator    = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, Ve), 0.0) * max(dot(N, L), 0.0) + 0.00001/* avoid divide by zero*/;
-    vec3 specular     = nominator / denominator;
-
-
-    // add to outgoing radiance Lo
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 diffuse_radiance = kD * (albedo)/ PI;
-
-    return (diffuse_radiance + specular) * radiance * NdotL;
-}
-
-
-vec3 PBR(in Surface hit, in Ray r , in Light l)
-{
-    vec3 ambient = vec3(0.03) * hit.mat.color * (1.0 - hit.mat.ao);
-    //Average F0 for dielectric materials
-    vec3 F0 = vec3(0.04);
-    // Get Proper F0 if material is not dielectric
-    F0 = mix(F0, hit.mat.color, hit.mat.metallic);
-    vec3 N = normalize(hit.n);
-    vec3 Ve = normalize(r.ro - hit.p);
-
-    float intensity = 1.0f;
-    if(l.type == 1)
-    {
-        float l_dist = light_dist(hit.p,l);
-        intensity = l.intensity/(l_dist*l_dist);
+// Intensity of a light source at a position
+vec3 light_radiance(Light light, vec3 position) {
+    float intensity_at_point = 1.0; // Default for directional lights
+    if (light.type > 0) { // Doesn't apply to directional light
+        float light_distance = light_dist(position, light);
+        intensity_at_point = light.intensity / pow(light_distance, 2.0);
     }
-    vec3 l_dir = light_ray(hit.p,l).rd;
-    vec3 H = normalize(Ve + l_dir);
-    return ambient + computeReflectance(N,Ve,F0,hit.mat.color,l_dir,H,l.color,intensity,hit.mat.metallic,hit.mat.roughness);
+    return light.color * intensity_at_point;
 }
 
 
+// Physically based rendering for a 'surface', hit by a 'ray' from a 'light'
+vec3 PBR(Surface surface, Ray ray, Light light, out float reflectance) {
+    ///////////////////
+    // Specular Term //
+    ///////////////////
+    vec3 f0 = vec3(0.16 * pow(surface.mat.reflectance, 2.0)); // Achromatic dielectric approximation
+    f0 = mix(f0, surface.mat.color, surface.mat.metallic); // Metals have chromatic reflections
+    float f90 = 1.0; // Approximation
 
-vec3 direct_illumination(Surface s, Ray r, float rc) {
-    vec3 color = vec3(0);
-    for(int i = 0 ; i < NUM_LIGHTS ; i++) {
-	Ray l_ray = light_ray(s.p, lights[i]);
-	l_ray.ro = s.p + 0.01*s.n;
-	SceneObj io;
+    vec3 surface_normal = normalize(surface.n); // Shouldn't this already be normalized?
+    vec3 view_direction = normalize(ray.origin - surface.p);
+    vec3 light_direction = normalize(light_ray(surface.p, light).direction);
+    vec3 half_angle = normalize(view_direction + light_direction);
+    vec3 HxN = cross(half_angle, surface_normal);
+    vec3 light_radiance =  light_radiance(light, surface.p);
 
-	io = ray_march(l_ray);
-	
-	float d_light = light_dist(s.p,lights[i]);
+    // Precompute dot products
+    float VoN = max(dot(view_direction, surface_normal), 0.0);
+    float LoN = max(dot(light_direction, surface_normal), 0.0);
+    float HoN = max(dot(half_angle, surface_normal), 0.0);
+    float VoH = max(dot(view_direction, half_angle), 0.0);
+    
+    // Distribution of micro-facets
+    float D = D_GGX(surface.mat.roughness, HoN, HxN);
+    // Geometry/Visual term of facets (shadowing/masking)
+    float V = V_SmithGGXCorrelatedFast(surface.mat.roughness, LoN, VoN);
+    // Fresnel Reflectance
+    vec3 F = F_Schlick(VoH, f0, f90);
+    // Specular color
+    vec3 Fs = D * V * F;
 
-	if(io.type < 0 || (io.type >= 0 && (io.dist >= d_light))) {
-	    color += PBR(s,r,lights[i]);
-	} else {
-	    color +=  vec3(0.03) * s.mat.color * s.mat.ao;
-	}
+    //////////////////
+    // Diffuse Term //
+    //////////////////
+    // Metal do not have a diffuse color (only specular)
+    vec3 base_color = (1.0 - surface.mat.metallic) * surface.mat.color; 
+    // Diffuse Color
+    vec3 Fd = base_color * (1.0 / PI);
+    
+    // Ambient Term
+    vec3 Fa = vec3(0.03) * surface.mat.color * (1.0 - surface.mat.ambient_occlusion);
+
+    // Update reflectance term
+    reflectance = length(F);
+    return Fa + (Fs + Fd) * light_radiance * LoN;
 
 
-	vec3 Ve = normalize(r.ro - s.p);
-	vec3 H = normalize(Ve + l_ray.rd);
-	rc = length(fresnelSchlick(max(dot(H, Ve), 0.0),  mix(vec3(0.04), s.mat.color, s.mat.metallic)))*s.mat.ao;
+}
+
+vec3 emissive_radiance(Surface surface, vec3 position) {
+    float distance = distance(surface.p, position); 
+    float intensity_at_point = surface.mat.emissive / min(1.0, pow(distance, 2.0));
+    return surface.mat.color * intensity_at_point;
+}
+
+#define SHADOW_FACTOR vec3(0.03)
+// Calculate a color reflected from the POV of 'ray' upon the 'surface'
+vec3 direct_illumination(in Surface surface, in Ray ray, out float reflectance) {
+    vec3 color = vec3(0.0);
+    // For every light
+    for(int i = 0 ; i < lights.length(); i++) {
+      // Create a ray pointing from the surface to the light source
+      Ray l_ray = light_ray(surface.p, lights[i]);
+      // Offset the origin a small amount for float rounding errors / self collision
+      l_ray.origin = surface.p + 0.01 * surface.n;
+
+      // Find the object (if any) the ray intersects with
+	  SceneObj object = ray_march(l_ray);
+	  float distance_to_light = light_dist(surface.p, lights[i]);
+
+      // If the ray collides with another object, closer to the light source
+	  if (object.type >= 0 && (object.dist < distance_to_light)) {
+        // It's in shadow
+	    color +=  SHADOW_FACTOR * surface.mat.color * surface.mat.ambient_occlusion;
+      } else { // Color/Light normally
+        float r;
+	    color += PBR(surface, ray, lights[i], r);
+        reflectance += r;
+	  }
     }
-
+    // Add emissive light from the object itself
+    // color += emissive_radiance(surface, ray.origin);
     return color;
 }
 
-#define NUM_REFLECTIONS 1
+#define GROUND_PLANE_MATERIAL 0
+#define BLOCK_MATERIAL 1
+#define BLOCK_ACTIVE_MATERIAL 2
+PBRMat getObjectMaterial(int type, int id) {
+    // Default to ground plane
+    PBRMat material = materials[GROUND_PLANE_MATERIAL];
+    // Block
+    if (type == 1) {
+      if (cells[id] == 1u) {
+        material = materials[BLOCK_ACTIVE_MATERIAL]; 
+      } else { material = materials[BLOCK_MATERIAL]; }
+    }
+    return material;
+}
+
+#define GAMMA 2.1
+#define RAY_OFFSET 0.05
+#define NUM_REFLECTIONS 3
 #define REFLECTION_COEFFICIENT 0.3
-vec3 march(Ray r) {
-  vec3 accum = vec3(0);
-  vec3 mask = vec3(1);
-  
-  Ray curr_ray = r;
-  for(int i = 0; i <= NUM_REFLECTIONS; i++) {
-    SceneObj object = ray_march(curr_ray);
-    // If the ray hit an object
-    if (object.type > 0) {
-      // Generate a 'surface' for the hit object
-      vec3 position = curr_ray.ro + object.dist * curr_ray.rd;
-      PBRMat material = PBRMat(vec3(0.8,0.8,0.1), 0.5, 0.9, 0.5);
-      int t = (int(time / 1000.) % 32) + 1;
-      if (object.id % t == 0) {
-        material = PBRMat(vec3(1.0, 1.0, 1.0), 0.5, 0.1, 0.5);
-      }
+vec3 march(in Ray input_ray) {
+  // Shadow the input ray
+  Ray ray = input_ray;
+  // Accumulating the final color
+  vec3 final_color = vec3(0.0);
+  // Reduces contributions to the final color 
+  vec3 mask = vec3(1.0);
+
+  for(int i = 0; i < NUM_REFLECTIONS; i++) {
+    // Find the first object the ray intersects
+    SceneObj object = ray_march(ray);
+    // If the ray hit an object (-1 indicates no intersections)
+    if (object.type >= 0) {
+      // Generate a 'surface' where the ray hit the object 
+      vec3 position = ray.origin + object.dist * ray.direction;
+      PBRMat material = getObjectMaterial(object.type, object.id);
       vec3 normal = normalize(computeSDFGrad(object, position));
       Surface surface = Surface(position, normal, material);
       
+      // How much the last surface hit reflects light
+      float reflection_coefficient = 0.3;
       // Calculate the color of the surface
-      vec3 color = direct_illumination(surface, curr_ray, REFLECTION_COEFFICIENT);
-      accum = accum + mask * color;
-      mask = mask * REFLECTION_COEFFICIENT;
+      vec3 color = vec3(0.0);
+      if (surface.mat.emissive > 0.0) {
+        vec3 view_direction = normalize(ray.origin - surface.p);
+        float LoN = max(dot(view_direction, surface.n), 0.0);
+        color = surface.mat.emissive * surface.mat.color * LoN;
+        //color = emissive_radiance(surface, ray.origin) * LoN;
+      } else { // Shade normally
+        color = direct_illumination(surface, ray, reflection_coefficient);
+      }
+        
+      // Update the final color of the fragment
+      final_color += (mask * color);
+      mask *= reflection_coefficient;
+        
+      if (surface.mat.emissive > 0.0) { break; }
       
-      // Update the ray
-      curr_ray  = Ray(surface.p + 0.05*surface.n, reflect(curr_ray.rd,surface.n));
-    } else if(i==0){
-        accum = vec3(0.55);
-    }
+      // Create a new reflection ray for the next loop iteration
+      // Move the ray a little off the surface to avoid float rounding errors
+      vec3 new_position = surface.p + RAY_OFFSET * surface.n;
+      ray = Ray(new_position, reflect(ray.direction, surface.n));
+    } 
   }
     
-  //HDR
-  accum = accum / (accum+ vec3(1.0));
-  //Gamma
-  float gamma = 1.1;
-  accum = pow(accum, vec3(1.0/gamma));
+  // Color Corrections
+  // HDR Correction
+  final_color /= (final_color + vec3(1.0));
+  //Gamma Correction
+  final_color = pow(final_color, vec3(1.0 / GAMMA));
 
-  return accum; 
+  return final_color; 
 }
 
 
+float sdSmoothUnion(float d1, float d2, float k) {
+    float h = clamp(0.5 + 0.5 * (d2-d1) / k, 0.0, 1.0);
+    return mix(d2, d1, h) - k * h * (1.0 - h); 
+}
 
+// Returns the distance to our cloud
+// float cloud_distance(vec3 position) {
+//       
+// }
 
-
-
-
+// [0,1] normalized fragment coordinates
 in vec2 texcoords;
 out vec4 fragColor;
-
 
 void main() {
   // Set the grid dimensions (number of blocks for the GOL)
@@ -560,153 +680,3 @@ void main() {
 }
 
 `;
-
-// Compile Shaders
-function createShader(gl, type, source) {
-  var shader = gl.createShader(type);
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-  if (success) {
-    return shader;
-  }
-
-  console.warn(gl.getShaderInfoLog(shader));
-  gl.deleteShader(shader);
-}
-
-function createProgram(gl, vertexShader, fragmentShader) {
-  var program = gl.createProgram();
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  var success = gl.getProgramParameter(program, gl.LINK_STATUS);
-  if (success) {
-    return program;
-  }
-
-  console.log(gl.getProgramInfoLog(program));
-  gl.deleteProgram(program);
-}
-
-// Let the show begin!
-run();
-
-// Set constants for the grid's display
-// const CELL_SIZE = 5;
-// const GRID_COLOR = "#CCCCCC";
-// const ALIVE_COLOR = "#000000";
-// const DEAD_COLOR = "#FFFFFF";
-
-// Create a new universe in WASM memory
-// const universe = Universe.new(60, 60);
-// const width = universe.width();
-// const height = universe.height();
-
-// Grab & Initialize canvas + context
-// const canvas = document.getElementById("game-of-life-canvas");
-// const ctx = canvas.getContext("2d");
-// canvas.height = (CELL_SIZE + 1) * (height + 1);
-// canvas.width = (CELL_SIZE + 1) * (width + 1);
-// // Toggle on click
-// canvas.addEventListener("click", (event) => {
-//   const boundingRect = canvas.getBoundingClientRect();
-//
-//   const scaleX = canvas.width / boundingRect.width;
-//   const scaleY = canvas.height / boundingRect.height;
-//
-//   const canvasLeft = (event.clientX - boundingRect.left) * scaleX;
-//   const canvasTop = (event.clientY - boundingRect.top) * scaleY;
-//
-//   const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), height - 1);
-//   const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), width - 1);
-//
-//   universe.toggle_cell(row, col);
-//
-//   drawGrid();
-//   drawCells();
-// });
-//
-// Main Render Loop
-//   let paused = false;
-//   let last_tick_time = new Date();
-//   document.onkeypress = (event) => {
-//     if (event.code == "Space") {
-//       paused = !paused;
-//     } else if (event.code == "Digit1") {
-//       console.log("girls");
-//       universe.all_alive();
-//       drawGrid();
-//       drawCells();
-//     } else if (event.code == "Digit0") {
-//       console.log("gay");
-//       universe.all_dead();
-//       drawGrid();
-//       drawCells();
-//     }
-//   };
-//   const renderLoop = () => {
-//     let current_time = new Date();
-//     let time_elapsed = current_time - last_tick_time;
-//
-//     if (!paused && time_elapsed > 500) {
-//       universe.tick();
-//       drawGrid();
-//       drawCells();
-//       last_tick_time = current_time;
-//     }
-//
-//     requestAnimationFrame(renderLoop);
-//   };
-//
-//   const drawGrid = () => {
-//     ctx.beginPath();
-//     ctx.strokeStyle = GRID_COLOR;
-//     // Vertical lines.
-//     for (let i = 0; i <= width; i++) {
-//       ctx.moveTo(i * (CELL_SIZE + 1) + 1, 0);
-//       ctx.lineTo(i * (CELL_SIZE + 1) + 1, (CELL_SIZE + 1) * height + 1);
-//     }
-//
-//     // Horizontal lines.
-//     for (let j = 0; j <= height; j++) {
-//       ctx.moveTo(0, j * (CELL_SIZE + 1) + 1);
-//       ctx.lineTo((CELL_SIZE + 1) * width + 1, j * (CELL_SIZE + 1) + 1);
-//     }
-//
-//     ctx.stroke();
-//   };
-//
-//   // Get linear index of a cell's position in a 2D universe
-//   const getIndex = (row, column) => {
-//     return row * width + column;
-//   };
-//
-//   const drawCells = () => {
-//     const cellsPtr = universe.cells();
-//     const cells = new Uint8Array(wasm.memory.buffer, cellsPtr, width * height);
-//
-//     ctx.beginPath();
-//
-//     for (let row = 0; row < height; row++) {
-//       for (let col = 0; col < width; col++) {
-//         const idx = getIndex(row, col);
-//
-//         ctx.fillStyle = cells[idx] === Cell.Dead ? DEAD_COLOR : ALIVE_COLOR;
-//
-//         ctx.fillRect(
-//           col * (CELL_SIZE + 1) + 1,
-//           row * (CELL_SIZE + 1) + 1,
-//           CELL_SIZE,
-//           CELL_SIZE,
-//         );
-//       }
-//     }
-//
-//     ctx.stroke();
-//   };
-//
-//   // Kick off the animation
-//   requestAnimationFrame(renderLoop);
-// }
-//

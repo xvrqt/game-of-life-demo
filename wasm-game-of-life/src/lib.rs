@@ -1,6 +1,6 @@
 mod utils;
+use std::fmt;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlCanvasElement, WebGl2RenderingContext, WebGlProgram, WebGlShader};
 
 // Log to JS Console in a Browser
 #[allow(unused_macros)]
@@ -10,173 +10,125 @@ macro_rules! log {
     }
 }
 
-fn get_html_render_context(
-    canvas_id: &str,
-) -> Result<(HtmlCanvasElement, WebGl2RenderingContext), JsValue> {
-    // Grab the background canvas HTML element
-    let window = web_sys::window().expect("No Window Element");
-    let document = window.document().expect("No Document Element");
-    let canvas = document
-        .get_element_by_id(canvas_id)
-        .expect("No Canvas Element");
-    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
-    let context = canvas
-        .get_context("webgl2")?
-        .expect("WebGL2 Not Supported")
-        .dyn_into::<WebGl2RenderingContext>()?;
-    Ok((canvas, context))
+#[wasm_bindgen]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cell {
+    Dead = 0,
+    Alive = 1,
 }
 
-const VERT_SHADER_GLSL: &str = r##"#version 300 es
- 
-        in vec4 position;
-        out vec2 texcoords; // [0,1] st coordinates 
+#[wasm_bindgen]
+pub struct Universe {
+    width: u32,
+    height: u32,
+    cells: Vec<Cell>,
+}
 
-        void main() {
-            vec2 vertices[3]=vec2[3](vec2(-1,-1), vec2(3,-1), vec2(-1, 3));
-            gl_Position = vec4(vertices[gl_VertexID],0,1);
-            texcoords = 0.5 * gl_Position.xy + vec2(0.5);
+impl Universe {
+    // Get index into the Cells vector
+    fn get_index(&self, row: u32, column: u32) -> usize {
+        (row * self.width + column) as usize
+    }
+
+    // Number of neighbors next to the cell which are alive
+    fn live_neighbor_count(&self, row: u32, column: u32) -> u8 {
+        let mut count = 0;
+        for delta_row in [self.height - 1, 0, 1].iter().cloned() {
+            for delta_col in [self.width - 1, 0, 1].iter().cloned() {
+                if delta_row == 0 && delta_col == 0 {
+                    continue;
+                }
+
+                let neighbor_row = (row + delta_row) % self.height;
+                let neighbor_col = (column + delta_col) % self.width;
+                let idx = self.get_index(neighbor_row, neighbor_col);
+                count += self.cells[idx] as u8;
+            }
         }
-"##;
-
-const FRAG_SHADER_GLSL: &str = r##"#version 300 es 
-    
-        precision highp float;
-
-        out vec4 outColor;
-        in vec2 texcoords;
-
-        uniform uint width;
-        uniform unit height;
-        
-        void main() {
-            outColor = vec4(texcoords, 0, 1);
-        }
-"##;
-
-#[wasm_bindgen(start)]
-fn start() -> Result<(), JsValue> {
-    // Canvas
-    let (canvas, context) = get_html_render_context("canvas")?;
-
-    // Shaders
-    let vert_shader = compile_shader(
-        &context,
-        WebGl2RenderingContext::VERTEX_SHADER,
-        VERT_SHADER_GLSL,
-    )?;
-
-    let frag_shader = compile_shader(
-        &context,
-        WebGl2RenderingContext::FRAGMENT_SHADER,
-        FRAG_SHADER_GLSL,
-    )?;
-
-    // Program
-    let program = link_program(&context, &vert_shader, &frag_shader)?;
-    context.use_program(Some(&program));
-
-    // Draw Call
-    draw(&context, 3_i32);
-    Ok(())
-
-    // let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
-    //
-    // let position_attribute_location = context.get_attrib_location(&program, "position");
-    // let buffer = context.create_buffer().ok_or("Failed to create buffer")?;
-    // context.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&buffer));
-
-    // Note that `Float32Array::view` is somewhat dangerous (hence the
-    // `unsafe`!). This is creating a raw view into our module's
-    // `WebAssembly.Memory` buffer, but if we allocate more pages for ourself
-    // (aka do a memory allocation in Rust) it'll cause the buffer to change,
-    // causing the `Float32Array` to be invalid.
-    //
-    // As a result, after `Float32Array::view` we have to be very careful not to
-    // do any memory allocations before it's dropped.
-    // unsafe {
-    //     let positions_array_buf_view = js_sys::Float32Array::view(&vertices);
-    //
-    //     context.buffer_data_with_array_buffer_view(
-    //         WebGl2RenderingContext::ARRAY_BUFFER,
-    //         &positions_array_buf_view,
-    //         WebGl2RenderingContext::STATIC_DRAW,
-    //     );
-    // }
-    //
-    // let vao = context
-    //     .create_vertex_array()
-    //     .ok_or("Could not create vertex array object")?;
-    // context.bind_vertex_array(Some(&vao));
-    //
-    // context.vertex_attrib_pointer_with_i32(
-    //     position_attribute_location as u32,
-    //     3,
-    //     WebGl2RenderingContext::FLOAT,
-    //     false,
-    //     0,
-    //     0,
-    // );
-    // context.enable_vertex_attrib_array(position_attribute_location as u32);
-    //
-    // context.bind_vertex_array(Some(&vao));
-    //
-    // let vert_count = (vertices.len() / 3) as i32;
-}
-
-fn draw(context: &WebGl2RenderingContext, vert_count: i32) {
-    context.clear_color(0.0, 0.0, 0.0, 1.0);
-    context.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-
-    context.draw_arrays(WebGl2RenderingContext::TRIANGLES, 0, vert_count);
-}
-
-pub fn compile_shader(
-    context: &WebGl2RenderingContext,
-    shader_type: u32,
-    source: &str,
-) -> Result<WebGlShader, String> {
-    let shader = context
-        .create_shader(shader_type)
-        .ok_or_else(|| String::from("Unable to create shader object"))?;
-    context.shader_source(&shader, source);
-    context.compile_shader(&shader);
-
-    if context
-        .get_shader_parameter(&shader, WebGl2RenderingContext::COMPILE_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        Ok(shader)
-    } else {
-        Err(context
-            .get_shader_info_log(&shader)
-            .unwrap_or_else(|| String::from("Unknown error creating shader")))
+        count
     }
 }
 
-pub fn link_program(
-    context: &WebGl2RenderingContext,
-    vert_shader: &WebGlShader,
-    frag_shader: &WebGlShader,
-) -> Result<WebGlProgram, String> {
-    let program = context
-        .create_program()
-        .ok_or_else(|| String::from("Unable to create shader object"))?;
+#[wasm_bindgen]
+impl Universe {
+    pub fn tick(&mut self) {
+        let mut next = self.cells.clone();
 
-    context.attach_shader(&program, vert_shader);
-    context.attach_shader(&program, frag_shader);
-    context.link_program(&program);
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = self.get_index(row, col);
+                let cell = self.cells[idx];
+                let live_neighbors = self.live_neighbor_count(row, col);
+                let next_cell = match (cell, live_neighbors) {
+                    // Rule 1: Any live cell with fewer than two live neighbours
+                    // dies, as if caused by underpopulation.
+                    (Cell::Alive, x) if x < 2 => Cell::Dead,
+                    // Rule 2: Any live cell with two or three live neighbours
+                    // lives on to the next generation.
+                    (Cell::Alive, 2) | (Cell::Alive, 3) => Cell::Alive,
+                    // Rule 3: Any live cell with more than three live
+                    // neighbours dies, as if by overpopulation.
+                    (Cell::Alive, x) if x > 3 => Cell::Dead,
+                    // Rule 4: Any dead cell with exactly three live neighbours
+                    // becomes a live cell, as if by reproduction.
+                    (Cell::Dead, 3) => Cell::Alive,
+                    // All other cells remain in the same state.
+                    (otherwise, _) => otherwise,
+                };
+                next[idx] = next_cell;
+            }
+        }
+        self.cells = next;
+    }
 
-    if context
-        .get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS)
-        .as_bool()
-        .unwrap_or(false)
-    {
-        Ok(program)
-    } else {
-        Err(context
-            .get_program_info_log(&program)
-            .unwrap_or_else(|| String::from("Unknown error creating program object")))
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn cells(&self) -> *const Cell {
+        self.cells.as_ptr()
+    }
+
+    pub fn new(width: u32, height: u32) -> Universe {
+        let cells = (0..width * height)
+            .map(|i| {
+                // if i % 2 == 0 || i % 7 == 0 {
+                if i < 4 {
+                    Cell::Alive
+                } else {
+                    Cell::Dead
+                }
+            })
+            .collect();
+
+        Universe {
+            width,
+            height,
+            cells,
+        }
+    }
+
+    pub fn render(&self) -> String {
+        self.to_string()
+    }
+}
+
+#[allow(clippy::write_with_newline)]
+impl fmt::Display for Universe {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for line in self.cells.as_slice().chunks(self.width as usize) {
+            for &cell in line {
+                let symbol = if cell == Cell::Dead { '◻' } else { '◼' };
+                write!(f, "{}", symbol)?;
+            }
+            write!(f, "\n")?;
+        }
+
+        Ok(())
     }
 }

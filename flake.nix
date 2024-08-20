@@ -100,7 +100,7 @@
                   enable = lib.mkEnableOption "Webpage displaying my graphics prowress.";
                   domain = lib.mkOption {
                     type = lib.types.str;
-                    default = "graphics.xvrqt.com";
+                    default = "gol.xvrqt.com";
                     example = "gateway.xvrqt.com";
                     description = "Domain name for the website. In the form: sub.domain.tld, domain.tld";
                   };
@@ -131,12 +131,8 @@
               extraConfig = ''
                 try_files $uri $uri/ =404;
 
-                # http2_push /styles.css;
-                # http2_push /images/xvrqt.webp;
-                # http2_push /images/xvrqt.png;
-                # http2_push /images/title/xvrqt@3x.webp;
-                # http2_push /images/title/xvrqt@3x.png;
-                # http2_push /images/bg@2x.png;
+                 http2_push /styles.css;
+                 http2_push /index.js;
               '';
             };
           };
