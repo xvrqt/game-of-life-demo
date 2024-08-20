@@ -157,11 +157,16 @@ export function enableCanvasWindowResizeEvent(
   webgl,
   program,
   uniform_name = null,
+  callback = null,
 ) {
   let resize_listener = () => {
     resizeCanvasToDisplaySize(webgl);
     if (uniform_name) {
       updateUniformResolution(webgl, program, uniform_name);
+    }
+    // Call user defined function on resize
+    if (callback) {
+      callback();
     }
   };
   // Run it once

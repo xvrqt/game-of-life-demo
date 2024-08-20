@@ -2,8 +2,9 @@ export const fragment_shader_source = `#version 300 es
 precision highp float;
 
 #define PI 3.1415926535
-#define RGB /255.0
-#define DEFAULT_RAY_ORIGIN  vec3(0.0, 0.0, -8.0)
+#define RGB /255.0 // e.g. 255.0 RGB -> (255.0 / 255.0) -> 1.0
+#define VIEW_SCALE 8.0
+#define DEFAULT_RAY_ORIGIN  vec3(0.0, 0.0, -VIEW_SCALE)
 
 // Cells
 uniform uint cells[64];
@@ -13,17 +14,17 @@ uniform vec2 resolution;
 uniform float time;
 // Mouse Position (st)
 uniform vec2 mouse;
+// Grid Dimensions
+uniform ivec2 grid_dimensions;
 
 ///////////
 // SETUP //
 ///////////
 
-// Blocks are 4x the size of the space between them
-#define GUTTER_RATIO 4.0
-// Corners of blocks are rounded at 25%
+// Blocks are N times the size of the space between them
+#define GUTTER_RATIO 3.0
+// Corners & Edges of blocks are rounded at 50%
 #define ROUNDING_RATIO 0.5
-// The minimum grid size in either (x,y) direction
-#define GRID_MIN_DIMENSION 8.0
 
 // Spacing between blocks (will be updated)
 float GRID_GUTTER_SIZE = 1.0;
@@ -31,25 +32,26 @@ float GRID_GUTTER_SIZE = 1.0;
 float BLOCK_SIZE = 0.5;
 // How the corners and edges of the boxes are rounds (will be updated)
 float BLOCK_ROUNDING = 0.1;
-// How many blocks in each dimension (will be updated)
-vec3 GRID_DIMENSIONS = vec3(GRID_MIN_DIMENSION, GRID_MIN_DIMENSION, 1.0);
 // Sets up the number of blocks to fill the screen, and meet
 // the minimum # of blocks requirement. 'ratio' is the x/y resolution ratio.
 void set_grid_dimensions(float ratio) {
-  float nom = 8.0; // Fill the view box from [-1,1]
+  // Get minimum dimension
+  int min = min(grid_dimensions.x, grid_dimensions.y);
+  float min_dimension = float(min);
+  float nom = VIEW_SCALE; // Fill the view box from [-1,1]
   // Screen needs to fit N blocks and N+1 gutters
-  float denom = (GRID_MIN_DIMENSION + 1.0) + (GUTTER_RATIO * GRID_MIN_DIMENSION);
+  float denom = (min_dimension + 1.0) + (GUTTER_RATIO * min_dimension);
 
   // Wide Screen
   if (ratio > 1.0) { 
-    GRID_DIMENSIONS.x = round(ratio * GRID_MIN_DIMENSION);
-    // Formula requires an even number of squares
-    GRID_DIMENSIONS.x -= float(int(GRID_DIMENSIONS.x) % 2);
+    // GRID_DIMENSIONS.x = round(ratio * GRID_MIN_DIMENSION);
+    // // Formula requires an even number of squares
+    // GRID_DIMENSIONS.x -= float(int(GRID_DIMENSIONS.x) % 2);
   } else if (ratio < 1.0) { // Tall Screen
     nom *= ratio; // Adjust by ratio if the ratio is < 1
-    GRID_DIMENSIONS.y = round((1.0/ratio) * GRID_MIN_DIMENSION);
-    // Formula requires an even number of squares
-    GRID_DIMENSIONS.y -= float(int(GRID_DIMENSIONS.y) % 2);
+    // GRID_DIMENSIONS.y = round((1.0/ratio) * GRID_MIN_DIMENSION);
+    // // Formula requires an even number of squares
+    // GRID_DIMENSIONS.y -= float(int(GRID_DIMENSIONS.y) % 2);
   }
   BLOCK_SIZE = (nom * GUTTER_RATIO) / denom;
   BLOCK_ROUNDING = BLOCK_SIZE * ROUNDING_RATIO;
@@ -96,29 +98,36 @@ float sdRoundBox(vec3 p) {
 // Returns the distance to closest block to point 'p' in the 
 // grid of blocks.
 vec2 gol_grid_distance(vec3 p) {
-  float spacing = 2.0 * BLOCK_SIZE + GRID_GUTTER_SIZE;
   // Add the block size to the point to center it
   p += BLOCK_SIZE;
-  vec3 id = round(p / spacing);
-  vec3  o = sign(p - spacing * id);
+  // Calculate spacing between block centers
+  float spacing = 2.0 * BLOCK_SIZE + GRID_GUTTER_SIZE;
+  // Round the position into discrete areas of space
+  ivec2 id = ivec2(round(p.xy / spacing));
+  // Determine if the area is above/below the axis line
+  ivec2 o = sign(ivec2(p.xy - spacing) * id);
   float d = 1e20;
+  // A 1D index of the block that maps onto the GoL simulation
   int index = 0;
   // We only need to check blocks in the x/y directions because our grid is only 2D
   for (int j = 0; j < 2; j++)
     for (int i = 0; i < 2; i++) {
-      vec3 rid = id + vec3(i, j, 0) * o;
-      // limited repetition
-      rid = clamp(rid, -(GRID_DIMENSIONS - 2.0) * 0.5, (GRID_DIMENSIONS - 0.0) * 0.5);
-      vec3 r = p - spacing * rid;
-      int z_x = (int(rid.x) + int((GRID_DIMENSIONS.x - 2.0) * 0.5));
-      int z_y = (int(rid.y) + int((GRID_DIMENSIONS.y - 2.0) * 0.5));
-      int z = z_x + int(GRID_DIMENSIONS.x) * z_y;
-      z /= 4;
-      //z_mod = z % 4;
+      // CONTINUE CHECK @ 0,0
+      ivec2 rid = id + ivec2(i, j) * o;
+      // Limit repetition to within the grid dimensions
+      rid = clamp(rid, -(grid_dimensions - 2) / 2, grid_dimensions / 2);
+      // Box center
+      vec3 r = p - spacing * vec3(rid, 0.0);
+      // Calculate 1D box index that maps onto the GoL
+      int z_x = ((grid_dimensions.x - 2) / 2) + rid.x; 
+      int z_y = (grid_dimensions.y / 2) - rid.y; 
+      int z = z_x + int(grid_dimensions.x) * z_y;
       // Adjust position of some blocks based on ID
+      float a = 0.15 * sin(float(length(vec2(rid.xy))) + time * 0.001);
       if (cells[z] == 1u) {
-        r.z += 0.05;
+        a *= 0.5;
       }
+      r.z += a;
       float x = sdRoundBox(r); 
 
       if (x < d) {
@@ -134,7 +143,8 @@ vec2 gol_grid_distance(vec3 p) {
 float ground_plane_distance(vec3 p) {
   float distance = abs(p.z - GROUND_PLANE_LOCATION);
   distance -= abs(sin((time + p.x + p.y)/1000.0)) * (0.125 * BLOCK_SIZE); 
-  return distance;
+  return 1e+5;
+  // return distance;
 }
 
 // Closest object in the scene, from point 'p'
@@ -201,9 +211,10 @@ PBRMat materials[3] = PBRMat[3](
     ),
     // Block (Inactive)
     PBRMat(
-        vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
-        0.0,
-        0.1,
+        // vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
+        vec3(0.05),
+        1.0,
+        0.01,
         0.1,
         0.0,
         0.3
@@ -504,11 +515,12 @@ out vec4 fragColor;
 void main() {
   // Set the grid dimensions (number of blocks for the GOL)
   // Such that they fill the user's screen.
-  set_grid_dimensions(resolution.x/resolution.y);
+  float res_ratio = resolution.x / resolution.y;
+  set_grid_dimensions(res_ratio);
 
   // Update the position of the spot light
-  lights[0].pos_dir_vec.x = mouse.x * 8.0;
-  lights[0].pos_dir_vec.y = mouse.y * 8.0;
+  lights[0].pos_dir_vec.x = mouse.x * 8.0 * max(1.0, res_ratio);
+  lights[0].pos_dir_vec.y = mouse.y * 8.0 * max(1.0, 1.0 / res_ratio);
   
   // Ray Marching
   Ray ray = generatePerspectiveRay(resolution.xy, gl_FragCoord.xy);
