@@ -29,10 +29,12 @@ vec2 gol_grid_distance(vec3 position) {
   // A 1D index of the block that maps onto the GoL simulation
   int index = 0;
   // We only need to check blocks in the x/y directions 
+  ivec2 gd = grid_dimensions;
   for (int j = 0; j < 2; j++)
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; i++) 
+       for (int k = 0; k <= 2; k = k + 2) {
       // ID of block to check if it's closer
-      ivec2 rid = id + ivec2(i, j) * o;
+      ivec2 rid = id + ivec2(i, j) * (k - 1);
       // Limit repetition to within the grid dimensions
       rid = clamp(rid, -(grid_dimensions - 2) / 2, grid_dimensions / 2);
       // Block center
@@ -41,8 +43,9 @@ vec2 gol_grid_distance(vec3 position) {
       // Cell Index
       int cell_index = calculateCellIndex(rid);
 
-      // Adjust position of some blocks based on ID
-      float a = 0.05 * sin(float(length(vec2(rid))) + time * 0.001);
+      // Adjust position of some blocks based on id
+      // Max displacement can only be half a block before a repeating SDF breaks down
+      float a = 0.5 * BLOCK_SIZE * sin(float(length(vec2(rid))) + time * 0.001);
       block_location.z += a;
 
       float block_distance = sdRoundBox(block_location); 
@@ -100,6 +103,8 @@ uniform float time;
 uniform vec2 mouse;
 // Grid Dimensions
 uniform ivec2 grid_dimensions;
+// Brightness coefficient
+uniform float blend_ce;
 
 ///////////
 // SETUP //
@@ -209,11 +214,12 @@ PBRMat materials[3] = PBRMat[3](
     ),
     // Block (Inactive)
     PBRMat(
-        vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
-        // vec3(0.05),
-        1.0,
+        // vec3(174.0 RGB, 222.0 RGB, 252.0 RGB),
+        // vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
+        vec3(0.05),
+        0.0,
         0.1,
-        0.1,
+        0.9,
         0.0,
         0.3
     ),
@@ -223,12 +229,12 @@ PBRMat materials[3] = PBRMat[3](
         0.0,
         0.9,
         0.9,
-        5.0,
+        2.0,
         0.3
     )
 );
 
-// Get the distance from an object to a point
+// Get the distace from an object to a point
 float getObjectSD(int type, int id, vec3 p) {
   float distance = 1e20;
   if (type == 0) { distance = ground_plane_distance(p); }
@@ -282,7 +288,17 @@ struct Light
     float intensity;
 };
 // White directional light, pointing away from camera
-Light lights[1] = Light[1](Light(POSITIONAL_LIGHT, vec3(0.0, 0.0, -4.0), vec3(255.0 RGB, 255.0 RGB, 255.0 RGB), 32.0));
+Light lights[2] = Light[2](
+    Light( // Spotlight that follows mouse
+        POSITIONAL_LIGHT, 
+        vec3(0.0, 0.0, -4.0), 
+        vec3(1.0), 
+        32.0), 
+    Light( // Becklight
+        POSITIONAL_LIGHT, 
+        vec3(0.0, 0.0, 4.0), 
+        vec3(255.0 RGB, 105.0 RGB, 138.0 RGB), 
+        32.0));
 
 // Vector from position towards the light
 Ray light_ray(vec3 position, Light light) {
@@ -399,7 +415,7 @@ vec3 direct_illumination(in Surface surface, in Ray ray, out float reflectance) 
       // Create a ray pointing from the surface to the light source
       Ray l_ray = light_ray(surface.p, lights[i]);
       // Offset the origin a small amount for float rounding errors / self collision
-      l_ray.origin = surface.p + 0.01 * surface.n;
+      l_ray.origin = surface.p + 0.06 * surface.n;
 
       // Find the object (if any) the ray intersects with
 	  SceneObj object = ray_march(l_ray);
@@ -409,6 +425,7 @@ vec3 direct_illumination(in Surface surface, in Ray ray, out float reflectance) 
 	  if (object.type >= 0 && (object.dist < distance_to_light)) {
         // It's in shadow
 	    color +=  SHADOW_FACTOR * surface.mat.color * surface.mat.ambient_occlusion;
+
       } else { // Color/Light normally
         float r;
 	    color += PBR(surface, ray, lights[i], r);
@@ -433,6 +450,18 @@ uint getbits(uint value, uint offset, uint n) {
   uint mask = (1u << n) - 1u; /* n '1's */
   return value & mask;
 }
+
+PBRMat blend_materials(float x, PBRMat mat_a, PBRMat mat_b) {
+    return PBRMat(
+        mix( mat_a.color, mat_b.color, vec3(x)),
+        mix(mat_a.metallic, mat_b.metallic, x),
+        mix(mat_a.roughness, mat_b.roughness, x),
+        mix(mat_a.reflectance, mat_b.reflectance, x),
+        mix(mat_a.emissive, mat_b.emissive, x),
+        mix(mat_a.ambient_occlusion, mat_b.ambient_occlusion, x)
+    );
+}
+
 PBRMat getObjectMaterial(int type, int id) {
     // Default to ground plane
     PBRMat material = materials[GROUND_PLANE_MATERIAL];
@@ -441,9 +470,16 @@ PBRMat getObjectMaterial(int type, int id) {
         uint u8_id = uint(id) / 4u;
         uint offset = uint(id) % 4u;
         offset = offset * 7u + offset;
-      if (getbits(cells[u8_id], offset, 8u) == 1u) {
-        material = materials[BLOCK_ACTIVE_MATERIAL]; 
-      } else { material = materials[BLOCK_MATERIAL]; }
+        uint cell = getbits(cells[u8_id], offset, 8u);
+        if (cell == 7u) {
+            material = materials[BLOCK_ACTIVE_MATERIAL];
+        } else if (cell == 6u) {
+            PBRMat a = materials[BLOCK_ACTIVE_MATERIAL]; 
+            PBRMat b = materials[BLOCK_MATERIAL]; 
+            material = blend_materials(blend_ce, a, b);
+        } else {
+            material = materials[BLOCK_MATERIAL];
+        }
     }
     return material;
 }
@@ -478,11 +514,10 @@ vec3 march(in Ray input_ray) {
       if (surface.mat.emissive > 0.0) {
         vec3 view_direction = normalize(ray.origin - surface.p);
         float LoN = max(dot(view_direction, surface.n), 0.0);
-        color = surface.mat.emissive * surface.mat.color * LoN;
-        //color = emissive_radiance(surface, ray.origin) * LoN;
-      } else { // Shade normally
-        color = direct_illumination(surface, ray, reflection_coefficient);
-      }
+        // color += surface.mat.emissive * surface.mat.color * LoN;
+        color += emissive_radiance(surface, ray.origin) * LoN;
+      } 
+        color += direct_illumination(surface, ray, reflection_coefficient);
         
       // Update the final color of the fragment
       final_color += (mask * color);

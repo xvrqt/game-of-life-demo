@@ -9,7 +9,7 @@ import {
   vertex_shader_source,
   fragment_shader_source,
 } from "./scripts/shaders.js";
-import init, { Universe, Cell } from "./wasm/wasm_game_of_life.js";
+import init, { Universe } from "./wasm/wasm_game_of_life.js";
 
 let universe = null;
 async function run() {
@@ -60,12 +60,13 @@ let onKeyDown = function (event) {
 };
 
 let paused = false;
-const FPS = 30.0;
+const FPS = 60.0;
 const min_frame_time = 1000 / FPS;
 // Timestamp of when the simulation began
 let start_time = Date.now();
 // Timestamp of the last frame
 let last_frame_time = Date.now();
+let frame = 0;
 // Time the Universe of Cells last updated
 let last_tick_time = Date.now();
 function renderLoop(gl, program, universe, wasm) {
@@ -77,13 +78,21 @@ function renderLoop(gl, program, universe, wasm) {
   // Update the simulation every second
   if (!paused && time_elapsed_since_last_tick > 1000) {
     last_tick_time = current_time;
-    // universe.tick();
+    universe.tick();
     updateActiveBlocks(gl, program, universe, wasm.memory);
   }
   // Draw every frame
   if (time_elapsed_since_last_frame >= min_frame_time) {
+    frame++;
     last_frame_time = current_time;
+    // Update the time elapsed, animation depends on it
     updateTimeUniform(gl, program, time_elapsed);
+    // Update the blend coefficient to blend between materials
+    let blend_ce = time_elapsed_since_last_tick / 1000.0;
+    let location = gl.getUniformLocation(program, "blend_ce");
+    gl.uniform1f(location, blend_ce);
+
+    // Redraw the frame
     draw(gl);
   }
   // Call ourselves again
@@ -116,7 +125,6 @@ function calculateGridDimensions(canvas) {
     height = Math.round(min_grid_dimension * (1 / xy_ratio));
     height -= height % 2; // Ensure even dimensions
   }
-  console.log(xy_ratio);
   return [width, height];
 }
 
@@ -124,10 +132,8 @@ function updateActiveBlocks(gl, program, universe, memory) {
   const height = universe.height();
   const width = universe.width();
   const cells_ptr = universe.cells();
-  console.log(width, height);
   const cells = new Uint32Array(memory.buffer, cells_ptr, (width * height) / 4);
 
-  console.log(cells);
   let cells_location = gl.getUniformLocation(program, "cells");
   gl.uniform1uiv(cells_location, cells);
   // let lol = new Uint32Array(cells);
