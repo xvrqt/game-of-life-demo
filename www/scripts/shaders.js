@@ -94,7 +94,7 @@ precision highp float;
 #define DEFAULT_RAY_ORIGIN  vec3(0.0, 0.0, -VIEW_SCALE)
 
 // Cells
-uniform uint cells[64];
+uniform uint cells[128];
 // The size of the screen in pixels
 uniform vec2 resolution;
 // Elapsed time in miliseconds 

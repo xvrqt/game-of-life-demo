@@ -11,7 +11,6 @@ import {
 } from "./scripts/shaders.js";
 import init, { Universe } from "./wasm/wasm_game_of_life.js";
 
-let universe = null;
 async function run() {
   // Load the WASM so we can use the functions defined therein
   let wasm = await init();
@@ -28,10 +27,7 @@ async function run() {
   }
 
   // Calculate the Game of Life cell grid dimensions
-  let [width, height] = calculateGridDimensions(canvas);
-  universe = Universe.new(width, height);
-  console.log(width, height);
-  console.log(universe);
+  initializeUniverse();
 
   // Initialize Uniforms
   startUniformTimer();
@@ -39,17 +35,34 @@ async function run() {
   // Sets a uniform that moves the light with the mouse
   enableMouseEventListener(gl, program);
   // Reset the view, canvas size, and grid size on a resize
-  enableCanvasWindowResizeEvent(gl, program, "resolution", () => {
-    let [width, height] = calculateGridDimensions(canvas);
-    updateUniformGridDimension(gl, program, width, height);
-    draw(gl);
-  });
-  updateUniformGridDimension(gl, program, width, height);
+  enableCanvasWindowResizeEvent(
+    gl,
+    program,
+    "resolution",
+    () => {
+      initializeUniverse();
+      updateUniformGridDimension(
+        gl,
+        program,
+        universe.width(),
+        universe.height(),
+      );
+      draw(gl);
+    },
+    0.25,
+  );
+  updateUniformGridDimension(gl, program, universe.width(), universe.height());
 
   // Initialize key event handlers
   window.addEventListener("keydown", onKeyDown);
   // Kick off the render
-  renderLoop(gl, program, universe, wasm);
+  renderLoop(gl, program, wasm);
+}
+
+let universe = null;
+function initializeUniverse() {
+  let [width, height] = calculateGridDimensions(canvas);
+  universe = Universe.new(width, height);
 }
 
 // Handles keyboard input
@@ -64,12 +77,15 @@ const FPS = 60.0;
 const min_frame_time = 1000 / FPS;
 // Timestamp of when the simulation began
 let start_time = Date.now();
+let prev_time = Date.now();
 // Timestamp of the last frame
 let last_frame_time = Date.now();
 let frame = 0;
 // Time the Universe of Cells last updated
 let last_tick_time = Date.now();
-function renderLoop(gl, program, universe, wasm) {
+function renderLoop(gl, program, wasm) {
+  // let current_time = paused ? prev_time : Date.now();
+  // prev_time = current_time;
   let current_time = Date.now();
   let time_elapsed = current_time - start_time;
   let time_elapsed_since_last_frame = current_time - last_frame_time;
@@ -79,7 +95,7 @@ function renderLoop(gl, program, universe, wasm) {
   if (!paused && time_elapsed_since_last_tick > 1000) {
     last_tick_time = current_time;
     universe.tick();
-    updateActiveBlocks(gl, program, universe, wasm.memory);
+    updateActiveBlocks(gl, program, wasm.memory);
   }
   // Draw every frame
   if (time_elapsed_since_last_frame >= min_frame_time) {
@@ -87,8 +103,9 @@ function renderLoop(gl, program, universe, wasm) {
     last_frame_time = current_time;
     // Update the time elapsed, animation depends on it
     updateTimeUniform(gl, program, time_elapsed);
+
     // Update the blend coefficient to blend between materials
-    let blend_ce = time_elapsed_since_last_tick / 1000.0;
+    let blend_ce = Math.min(1.0, time_elapsed_since_last_tick / 1000.0);
     let location = gl.getUniformLocation(program, "blend_ce");
     gl.uniform1f(location, blend_ce);
 
@@ -97,7 +114,7 @@ function renderLoop(gl, program, universe, wasm) {
   }
   // Call ourselves again
   requestAnimationFrame(() => {
-    renderLoop(gl, program, universe, wasm);
+    renderLoop(gl, program, wasm);
   });
 }
 
@@ -128,7 +145,7 @@ function calculateGridDimensions(canvas) {
   return [width, height];
 }
 
-function updateActiveBlocks(gl, program, universe, memory) {
+function updateActiveBlocks(gl, program, memory) {
   const height = universe.height();
   const width = universe.width();
   const cells_ptr = universe.cells();
@@ -136,9 +153,6 @@ function updateActiveBlocks(gl, program, universe, memory) {
 
   let cells_location = gl.getUniformLocation(program, "cells");
   gl.uniform1uiv(cells_location, cells);
-  // let lol = new Uint32Array(cells);
-  // console.log(lol);
-  // gl.uniform1uiv(cells_location, lol);
 }
 
 function updateTimeUniform(gl, program, secs_elapsed) {
