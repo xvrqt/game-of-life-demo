@@ -120,6 +120,7 @@
             enableACME = true;
             acmeRoot = null;
             locations."/" = {
+              include = "mime.types";
               root = "${website}";
             };
           };
