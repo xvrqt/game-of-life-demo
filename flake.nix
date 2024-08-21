@@ -119,25 +119,8 @@
             forceSSL = true;
             enableACME = true;
             acmeRoot = null;
-            extraConfig = ''
-              charset utf-8;
-              etag on;
-              index index.html;
-              http2_push_preload on;
-              expires $expires;
-            '';
             locations."/" = {
               root = "${website}";
-              types = {
-                "text/javascript" = "js";
-              };
-              extraConfig = ''
-
-                try_files $uri $uri/ =404;
-
-                 http2_push /styles.css;
-                 http2_push /index.js;
-              '';
             };
           };
         };
