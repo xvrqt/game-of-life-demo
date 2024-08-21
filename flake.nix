@@ -115,12 +115,14 @@
           environment.systemPackages = [website];
 
           # Configure a virtual host on nginx
+          services.nginx.appendHttpConfig = ''
+            include mime.types;
+          '';
           services.nginx.virtualHosts.${domain} = lib.mkIf cfgcheck {
             forceSSL = true;
             enableACME = true;
             acmeRoot = null;
             locations."/" = {
-              include = "mime.types";
               root = "${website}";
             };
           };
