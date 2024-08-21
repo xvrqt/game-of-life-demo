@@ -10,13 +10,6 @@ macro_rules! log {
     }
 }
 
-// #[wasm_bindgen]
-// #[repr(u8)]
-// #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// pub enum Cell {
-//     Dead = 0,
-//     Alive = 1,
-// }
 type Cell = u8;
 
 #[wasm_bindgen]
@@ -58,13 +51,25 @@ impl Universe {
 #[wasm_bindgen]
 impl Universe {
     pub fn tock(&mut self) {
-        for i in 0..self.cells.len() {
-            self.cells[i] = match self.cells[i] {
-                7 => 7,
-                0 => 0,
-                x => x - 1,
-            };
+        let mut next = self.cells.clone();
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = self.get_index(row, col);
+                let cell = self.cells[idx];
+                let alive = 7u8;
+                let dead = 0u8;
+                let next_cell = match cell {
+                    // Any growing cell becomes alive
+                    1u8 => alive,
+                    // Any dying cell, dies
+                    6u8 => dead,
+                    // All other cells remain in the same state.
+                    _ => cell,
+                };
+                next[idx] = next_cell;
+            }
         }
+        self.cells = next;
     }
     pub fn tick(&mut self) {
         let mut next = self.cells.clone();
@@ -72,33 +77,28 @@ impl Universe {
             for col in 0..self.width {
                 let idx = self.get_index(row, col);
                 let cell = self.cells[idx];
-                let cell_alive = 7 == cell;
-                let alive = 7u8;
+                let growing = 1u8;
                 let dying = 6u8;
+                let alive = 7u8;
                 let live_neighbors = self.live_neighbor_count(row, col);
-                let next_cell = match (cell_alive, live_neighbors) {
+                let next_cell = match (cell, live_neighbors) {
                     // Rule 1: Any live cell with fewer than two live neighbours
                     // dies, as if caused by underpopulation.
-                    (true, x) if x < 2 => dying,
+                    (7, x) if x < 2 => dying,
                     // Rule 2: Any live cell with two or three live neighbours
                     // lives on to the next generation.
-                    (true, 2) | (true, 3) => alive,
+                    (7, 2) | (7, 3) => alive,
                     // Rule 3: Any live cell with more than three live
                     // neighbours dies, as if by overpopulation.
-                    (true, x) if x > 3 => dying,
+                    (7, x) if x > 3 => dying,
                     // Rule 4: Any dead cell with exactly three live neighbours
                     // becomes a live cell, as if by reproduction.
-                    (false, 3) => alive,
-                    // fades away
-                    (false, _) => {
-                        if cell > 0 {
-                            cell - 1
-                        } else {
-                            0
-                        }
-                    }
+                    (0, 3) => growing,
+
                     // All other cells remain in the same state.
-                    (_, _) => cell,
+                    (7, _) => alive,
+                    (0, _) => 0u8,
+                    (_, _) => 0u8,
                 };
                 next[idx] = next_cell;
             }
@@ -120,14 +120,7 @@ impl Universe {
 
     pub fn new(width: u32, height: u32) -> Universe {
         let cells = (0..width * height)
-            .map(|i| {
-                if i % 2 == 0 || i % 7 == 0 {
-                    // if i < 4 {
-                    7
-                } else {
-                    0
-                }
-            })
+            .map(|i| if i % 2 == 0 || i % 7 == 0 { 1u8 } else { 6u8 })
             .collect();
 
         Universe {
