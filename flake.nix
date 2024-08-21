@@ -130,7 +130,7 @@
               root = "${website}";
               extraConfig = ''
                 types {
-                  application/javascript js
+                  text/javascript js
                 }
                 try_files $uri $uri/ =404;
 
