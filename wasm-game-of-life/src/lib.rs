@@ -71,6 +71,7 @@ impl Universe {
         }
         self.cells = next;
     }
+
     pub fn tick(&mut self) {
         let mut next = self.cells.clone();
         for row in 0..self.height {

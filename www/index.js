@@ -85,8 +85,6 @@ let tick_or_tock = 0;
 // Time the Universe of Cells last updated
 let last_tick_time = Date.now();
 function renderLoop(gl, program, wasm) {
-  // let current_time = paused ? prev_time : Date.now();
-  // prev_time = current_time;
   let current_time = Date.now();
   let time_elapsed = current_time - start_time;
   let time_elapsed_since_last_frame = current_time - last_frame_time;
@@ -113,9 +111,9 @@ function renderLoop(gl, program, wasm) {
     // Update the time elapsed, animation depends on it
     updateTimeUniform(gl, program, time_elapsed);
     // Redraw the frame
+    draw(gl);
+    updateActiveBlocks(gl, program, wasm.memory);
   }
-  draw(gl);
-  updateActiveBlocks(gl, program, wasm.memory);
   // Call ourselves again
   requestAnimationFrame(() => {
     renderLoop(gl, program, wasm);
@@ -132,7 +130,7 @@ function updateUniformGridDimension(webgl, program, width, height) {
 // Input: Canvas Element
 // Output: Width (number of cells left to right)
 //         Height (number of cells up to down)
-let min_grid_dimension = 6;
+let min_grid_dimension = 8;
 function calculateGridDimensions(canvas) {
   const xy_ratio = (1.0 * canvas.width) / canvas.height;
   let width = min_grid_dimension;
