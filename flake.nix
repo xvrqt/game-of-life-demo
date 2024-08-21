@@ -129,6 +129,9 @@
             locations."/" = {
               root = "${website}";
               extraConfig = ''
+                types {
+                  application/javascript js
+                }
                 try_files $uri $uri/ =404;
 
                  http2_push /styles.css;
