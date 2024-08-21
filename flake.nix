@@ -128,10 +128,11 @@
             '';
             locations."/" = {
               root = "${website}";
+              types = {
+                "text/javascript" = "js";
+              };
               extraConfig = ''
-                types {
-                  text/javascript js
-                }
+
                 try_files $uri $uri/ =404;
 
                  http2_push /styles.css;
