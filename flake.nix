@@ -75,7 +75,7 @@
         ...
       }: let
         # Convenience
-        pkgName = "graphics_demos";
+        pkgName = "game_of_life";
         # Create a new derivation which simply copies the static site contents to the /nix/store
         website = pkgs.stdenv.mkDerivation {
           name = "website-${pkgName}";
