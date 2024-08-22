@@ -73,14 +73,10 @@ let onKeyDown = function (event) {
 };
 
 let paused = false;
-const FPS = 60.0;
-const min_frame_time = 1000 / FPS;
 // Timestamp of when the simulation began
 let start_time = Date.now();
-let prev_time = Date.now();
 // Timestamp of the last frame
 let last_frame_time = Date.now();
-let frame = 0;
 let tick_or_tock = 0;
 // Time the Universe of Cells last updated
 let last_tick_time = Date.now();
@@ -100,20 +96,16 @@ function renderLoop(gl, program, wasm) {
     }
     tick_or_tock++;
   }
-  // Update the blend coefficient to blend between materials
   let blend_ce = Math.min(1.0, time_elapsed_since_last_tick / 1000.0);
   let location = gl.getUniformLocation(program, "blend_ce");
   gl.uniform1f(location, blend_ce);
   // Draw every frame
-  if (time_elapsed_since_last_frame >= min_frame_time) {
-    frame++;
-    last_frame_time = current_time;
-    // Update the time elapsed, animation depends on it
-    updateTimeUniform(gl, program, time_elapsed);
-    // Redraw the frame
-    draw(gl);
-    updateActiveBlocks(gl, program, wasm.memory);
-  }
+  // Update the blend coefficient to blend between materials
+  // Update the time elapsed, animation depends on it
+  updateTimeUniform(gl, program, time_elapsed);
+  // Redraw the frame
+  draw(gl);
+  updateActiveBlocks(gl, program, wasm.memory);
   // Call ourselves again
   requestAnimationFrame(() => {
     renderLoop(gl, program, wasm);
