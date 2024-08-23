@@ -90,9 +90,9 @@ function renderLoop(gl, program, wasm) {
   if (!paused && time_elapsed_since_last_tick > 1000) {
     last_tick_time = current_time;
     if (tick_or_tock % 2 == 0) {
-      universe.tock();
-    } else {
       universe.tick();
+    } else {
+      universe.tock();
     }
     tick_or_tock++;
   }

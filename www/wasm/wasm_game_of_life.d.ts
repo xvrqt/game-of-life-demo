@@ -6,10 +6,16 @@ export class Universe {
   free(): void;
 /**
 */
-  tock(): void;
+  tick(): void;
 /**
 */
-  tick(): void;
+  tock(): void;
+/**
+* @param {number} width
+* @param {number} height
+* @returns {Universe}
+*/
+  static new(width: number, height: number): Universe;
 /**
 * @returns {number}
 */
@@ -22,16 +28,6 @@ export class Universe {
 * @returns {number}
 */
   cells(): number;
-/**
-* @param {number} width
-* @param {number} height
-* @returns {Universe}
-*/
-  static new(width: number, height: number): Universe;
-/**
-* @returns {string}
-*/
-  render(): string;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -39,15 +35,12 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly __wbg_universe_free: (a: number, b: number) => void;
-  readonly universe_tock: (a: number) => void;
   readonly universe_tick: (a: number) => void;
+  readonly universe_tock: (a: number) => void;
+  readonly universe_new: (a: number, b: number) => number;
   readonly universe_width: (a: number) => number;
   readonly universe_height: (a: number) => number;
   readonly universe_cells: (a: number) => number;
-  readonly universe_new: (a: number, b: number) => number;
-  readonly universe_render: (a: number, b: number) => void;
-  readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-  readonly __wbindgen_free: (a: number, b: number, c: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
