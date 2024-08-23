@@ -52,11 +52,12 @@ struct PBRMat {
 PBRMat materials[3] = PBRMat[3](
     // Ground Plane
     PBRMat(
-        vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
-        1.0,
+        // vec3(23.0 RGB, 238.0 RGB, 232.0 RGB),
+        vec3(0.95),
+        0.0,
         0.2,
         0.1,
-        0.5,
+        0.1,
         0.3
     ),
     // Block (Inactive)
@@ -134,6 +135,8 @@ uniform vec2 mouse;
 uniform ivec2 grid_dimensions;
 // Brightness coefficient
 uniform float blend_ce;
+// Color shift the active blocks
+uniform float color_shift;
 
 /////////////
 // HELPERS //
@@ -152,6 +155,23 @@ uint getbits(uint value, uint offset, uint n) {
   uint mask = (1u << n) - 1u; /* n '1's */
   return value & mask;
 }
+
+vec3 rgb2hsv(vec3 c) {
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
 
 ///////////
 // SETUP //
@@ -360,7 +380,7 @@ void updateLightPositions(float res_ratio) {
 // Interpolates between two materials
 PBRMat blend_materials(float x, PBRMat mat_a, PBRMat mat_b) {
   return PBRMat(
-    mix( mat_a.color, mat_b.color, vec3(x)),
+    mix(mat_a.color, mat_b.color, vec3(x)),
     mix(mat_a.metallic, mat_b.metallic, x),
     mix(mat_a.roughness, mat_b.roughness, x),
     mix(mat_a.reflectance, mat_b.reflectance, x),
@@ -387,15 +407,32 @@ PBRMat getObjectMaterial(int type, int id) {
     if (type == OBJ_BLOCK) {
         uint cell = getCellValue(uint(id));
         if (cell == ALIVE) {
-            material = materials[BLOCK_ACTIVE_MATERIAL];
+            material = materials[BLOCK_ACTIVE_MATERIAL]; 
+            vec3 color = rgb2hsv(material.color);
+            color.r = 0.5 * sin(color_shift - PI/2.0) + 0.5;
+            material.color = hsv2rgb(color);
         } else if (cell == DEAD) {
             material = materials[BLOCK_MATERIAL];
         } else {
             PBRMat a = materials[BLOCK_ACTIVE_MATERIAL]; 
+            vec3 color = rgb2hsv(a.color);
+            color.r = 0.5 * sin(color_shift - PI) + 0.5;
+            a.color = hsv2rgb(color);
+            PBRMat c = materials[BLOCK_ACTIVE_MATERIAL]; 
+            
             PBRMat b = materials[BLOCK_MATERIAL]; 
             float blend = clamp(blend_ce, 0.0, 1.0);
-            if (cell == 1u) { blend = 1.0 - blend; }
-            material = blend_materials(blend, a, b);
+            if (cell == 1u) { // Growing
+                if (blend < 0.85) {
+                  blend = mix(0.0, 0.85, blend);
+                  material = blend_materials(blend, b, a);
+                } else { 
+                  blend = mix(0.85, 1.0, blend);
+                  material = blend_materials(blend, a, c); 
+                }
+            } else { // Dying 
+              material = blend_materials(blend, c, b);
+            }
         }
     }
     return material;

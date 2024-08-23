@@ -75,6 +75,9 @@ let onKeyDown = function (event) {
   } else if (event.key == "-") {
     min_grid_dimension = Math.max(4, (min_grid_dimension -= 2));
     window.dispatchEvent(new Event("resize"));
+  } else if (event.key == "c") {
+    // Change colors
+    change_color = true;
   }
 };
 
@@ -85,6 +88,8 @@ function updateBlendUniform(gl, program, time_elapsed) {
   gl.uniform1f(location, blend_ce);
 }
 
+let change_color = false;
+let color_shift = 0.0;
 let paused = false;
 // Timestamp of when the simulation began
 let start_time = Date.now();
@@ -112,6 +117,14 @@ function renderLoop(gl, program, wasm) {
   // Update time-dependent uniforms
   updateBlendUniform(gl, program, time_elapsed_since_last_tick);
   updateTimeUniform(gl, program, time_elapsed);
+
+  // Update the hue of active blocks
+  if (change_color) {
+    color_shift += 1.0 / 60.0;
+    let location = gl.getUniformLocation(program, "color_shift");
+    gl.uniform1f(location, color_shift);
+    change_color = false;
+  }
 
   // Redraw the frame
   draw(gl);
