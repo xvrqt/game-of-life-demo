@@ -32,29 +32,26 @@ async function run() {
   // Initialize Uniforms
   startUniformTimer();
   updateUniformTime(gl, program);
+  // Set the grid size
+  updateUniformGridDimension(gl, program, universe.width(), universe.height());
+  // Reset the view, canvas size, and grid size on a resize
+  enableCanvasWindowResizeEvent(gl, program, "resolution", () => {
+    // Additionally, create a new universe, resize the grid
+    initializeUniverse();
+    updateUniformGridDimension(
+      gl,
+      program,
+      universe.width(),
+      universe.height(),
+    );
+    tick_or_tock = 0;
+    draw(gl);
+  });
   // Sets a uniform that moves the light with the mouse
   enableMouseEventListener(gl, program);
-  // Reset the view, canvas size, and grid size on a resize
-  enableCanvasWindowResizeEvent(
-    gl,
-    program,
-    "resolution",
-    () => {
-      initializeUniverse();
-      updateUniformGridDimension(
-        gl,
-        program,
-        universe.width(),
-        universe.height(),
-      );
-      draw(gl);
-    },
-    0.25,
-  );
-  updateUniformGridDimension(gl, program, universe.width(), universe.height());
-
   // Initialize key event handlers
   window.addEventListener("keydown", onKeyDown);
+
   // Kick off the render
   renderLoop(gl, program, wasm);
 }
@@ -69,47 +66,82 @@ function initializeUniverse() {
 let onKeyDown = function (event) {
   if (event.key == " ") {
     paused = !paused;
+  } else if (event.key == "Enter") {
+    universe.reset();
+    tick_or_tock = 0;
+  } else if (event.key == "=" || event.key == "+") {
+    min_grid_dimension = Math.min(64, (min_grid_dimension += 2));
+    window.dispatchEvent(new Event("resize"));
+  } else if (event.key == "-") {
+    min_grid_dimension = Math.max(4, (min_grid_dimension -= 2));
+    window.dispatchEvent(new Event("resize"));
   }
 };
+
+// Updates the blend timing uniform
+function updateBlendUniform(gl, program, time_elapsed) {
+  let blend_ce = Math.min(1.0, time_elapsed / 1000.0);
+  let location = gl.getUniformLocation(program, "blend_ce");
+  gl.uniform1f(location, blend_ce);
+}
 
 let paused = false;
 // Timestamp of when the simulation began
 let start_time = Date.now();
-// Timestamp of the last frame
-let last_frame_time = Date.now();
+let dead_universe_time = 0;
 let tick_or_tock = 0;
 // Time the Universe of Cells last updated
 let last_tick_time = Date.now();
 function renderLoop(gl, program, wasm) {
   let current_time = Date.now();
   let time_elapsed = current_time - start_time;
-  let time_elapsed_since_last_frame = current_time - last_frame_time;
   let time_elapsed_since_last_tick = current_time - last_tick_time;
 
   // Update the simulation every second
+  let change = true;
   if (!paused && time_elapsed_since_last_tick > 1000) {
     last_tick_time = current_time;
     if (tick_or_tock % 2 == 0) {
       universe.tick();
     } else {
-      universe.tock();
+      change = universe.tock();
     }
     tick_or_tock++;
   }
-  let blend_ce = Math.min(1.0, time_elapsed_since_last_tick / 1000.0);
-  let location = gl.getUniformLocation(program, "blend_ce");
-  gl.uniform1f(location, blend_ce);
-  // Draw every frame
-  // Update the blend coefficient to blend between materials
-  // Update the time elapsed, animation depends on it
+
+  // Update time-dependent uniforms
+  updateBlendUniform(gl, program, time_elapsed_since_last_tick);
   updateTimeUniform(gl, program, time_elapsed);
+
   // Redraw the frame
   draw(gl);
+
+  // Check if the universe has died
+  if (!change) {
+    bigBang();
+  }
+
+  // Update the universe's status in the shader
   updateActiveBlocks(gl, program, wasm.memory);
+
   // Call ourselves again
   requestAnimationFrame(() => {
     renderLoop(gl, program, wasm);
   });
+}
+
+// Reset if dead
+function bigBang() {
+  // If the universe has been dead for 5 seconds, restart it
+  if (dead_universe_time == 0) {
+    if (universe.is_dead()) {
+      dead_universe_time = Date.now();
+    }
+  } else if (Date.now() - dead_universe_time > 5000) {
+    universe.reset();
+    dead_universe_time = 0;
+    tick_or_tock = 0;
+  }
 }
 
 // Updates the "grid_dimensions" ivec2 uniform in the shader

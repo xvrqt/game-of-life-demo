@@ -66,7 +66,8 @@ impl Universe {
 
     // Requires all cells be either alive, or dead and calculates which should begin dying and
     // which should begin growing. Run after tick();
-    pub fn tock(&mut self) {
+    pub fn tock(&mut self) -> bool {
+        let mut change = false;
         let mut next = self.cells.clone();
         for row in 0..self.height {
             for col in 0..self.width {
@@ -82,16 +83,25 @@ impl Universe {
                     (7, x) if x < 2 => dying,
                     // Rule 2: Any live cell with two or three live neighbours
                     // lives on to the next generation.
-                    (7, 2) | (7, 3) => alive,
+                    (7, 2) | (7, 3) => {
+                        change = true;
+                        alive
+                    }
                     // Rule 3: Any live cell with more than three live
                     // neighbours dies, as if by overpopulation.
                     (7, x) if x > 3 => dying,
                     // Rule 4: Any dead cell with exactly three live neighbours
                     // becomes a live cell, as if by reproduction.
-                    (0, 3) => growing,
+                    (0, 3) => {
+                        change = true;
+                        growing
+                    }
 
                     // All other cells remain in the same state.
-                    (7, _) => alive,
+                    (7, _) => {
+                        change = true;
+                        alive
+                    }
                     (0, _) => 0u8,
                     (_, _) => 0u8,
                 };
@@ -99,6 +109,7 @@ impl Universe {
             }
         }
         self.cells = next;
+        return change;
     }
 
     pub fn new(width: u32, height: u32) -> Universe {
@@ -129,5 +140,22 @@ impl Universe {
 
     pub fn cells(&self) -> *const Cell {
         self.cells.as_ptr()
+    }
+    // Checks if the universe is dead
+    pub fn is_dead(&self) -> bool {
+        self.cells.iter().all(|c| *c == 0u8)
+    }
+    // Resets the universe, in place
+    pub fn reset(&mut self) {
+        for row in 0..self.height {
+            for col in 0..self.width {
+                let idx = self.get_index(row, col);
+                let rand = js_sys::Math::random();
+                self.cells[idx] = match rand {
+                    x if x < 0.5 => 1u8,
+                    _ => 6u8,
+                }
+            }
+        }
     }
 }

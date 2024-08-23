@@ -8,8 +8,9 @@ export class Universe {
 */
   tick(): void;
 /**
+* @returns {boolean}
 */
-  tock(): void;
+  tock(): boolean;
 /**
 * @param {number} width
 * @param {number} height
@@ -28,6 +29,13 @@ export class Universe {
 * @returns {number}
 */
   cells(): number;
+/**
+* @returns {boolean}
+*/
+  is_dead(): boolean;
+/**
+*/
+  reset(): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -36,11 +44,13 @@ export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly __wbg_universe_free: (a: number, b: number) => void;
   readonly universe_tick: (a: number) => void;
-  readonly universe_tock: (a: number) => void;
+  readonly universe_tock: (a: number) => number;
   readonly universe_new: (a: number, b: number) => number;
   readonly universe_width: (a: number) => number;
   readonly universe_height: (a: number) => number;
   readonly universe_cells: (a: number) => number;
+  readonly universe_is_dead: (a: number) => number;
+  readonly universe_reset: (a: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

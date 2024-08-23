@@ -123,7 +123,7 @@ Light lights[1] = Light[1](
 //////////////
 
 // Cells
-uniform uint cells[128];
+uniform uint cells[2048];
 // The size of the screen in pixels
 uniform vec2 resolution;
 // Elapsed time in miliseconds 

@@ -52,9 +52,11 @@ export class Universe {
         wasm.universe_tick(this.__wbg_ptr);
     }
     /**
+    * @returns {boolean}
     */
     tock() {
-        wasm.universe_tock(this.__wbg_ptr);
+        const ret = wasm.universe_tock(this.__wbg_ptr);
+        return ret !== 0;
     }
     /**
     * @param {number} width
@@ -85,6 +87,18 @@ export class Universe {
     cells() {
         const ret = wasm.universe_cells(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+    * @returns {boolean}
+    */
+    is_dead() {
+        const ret = wasm.universe_is_dead(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+    */
+    reset() {
+        wasm.universe_reset(this.__wbg_ptr);
     }
 }
 
