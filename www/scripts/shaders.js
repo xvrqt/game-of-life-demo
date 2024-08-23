@@ -57,7 +57,7 @@ PBRMat materials[3] = PBRMat[3](
         0.0,
         0.2,
         0.1,
-        0.1,
+        0.2,
         0.3
     ),
     // Block (Inactive)
@@ -406,13 +406,22 @@ PBRMat getObjectMaterial(int type, int id) {
     // Blocks
     if (type == OBJ_BLOCK) {
         uint cell = getCellValue(uint(id));
-        if (cell == ALIVE) {
-            material = materials[BLOCK_ACTIVE_MATERIAL]; 
-            vec3 color = rgb2hsv(material.color);
+            PBRMat alive = materials[BLOCK_ACTIVE_MATERIAL]; 
+            vec3 color = rgb2hsv(alive.color);
             color.r = 0.5 * sin(color_shift - PI/2.0) + 0.5;
-            material.color = hsv2rgb(color);
+            vec3 fade_color = color;
+            alive.color = hsv2rgb(color);
+            
+            PBRMat fade = materials[BLOCK_ACTIVE_MATERIAL];
+            fade_color.r = 0.5 * cos(color_shift - PI/2.0) + 0.5;
+            fade.color = hsv2rgb(fade_color);
+
+            PBRMat dead = materials[BLOCK_MATERIAL];
+
+        if (cell == ALIVE) {
+            material = alive;
         } else if (cell == DEAD) {
-            material = materials[BLOCK_MATERIAL];
+            material = dead;
         } else {
             PBRMat a = materials[BLOCK_ACTIVE_MATERIAL]; 
             vec3 color = rgb2hsv(a.color);
@@ -425,13 +434,13 @@ PBRMat getObjectMaterial(int type, int id) {
             if (cell == 1u) { // Growing
                 if (blend < 0.85) {
                   blend = mix(0.0, 0.85, blend);
-                  material = blend_materials(blend, b, a);
+                  material = blend_materials(blend, dead, fade);
                 } else { 
                   blend = mix(0.85, 1.0, blend);
-                  material = blend_materials(blend, a, c); 
+                  material = blend_materials(blend, fade, alive); 
                 }
             } else { // Dying 
-              material = blend_materials(blend, c, b);
+              material = blend_materials(blend, alive, dead);
             }
         }
     }
