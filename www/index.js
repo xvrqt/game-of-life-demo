@@ -90,10 +90,13 @@ let onKeyDown = function (event) {
 };
 
 // Updates the blend timing uniform
+let blend_location = null;
 function updateBlendUniform(gl, program, time_elapsed) {
   let blend_ce = Math.min(1.0, time_elapsed / 1000.0);
-  let location = gl.getUniformLocation(program, "blend_ce");
-  gl.uniform1f(location, blend_ce);
+  if (!blend_location) {
+    blend_location = gl.getUniformLocation(program, "blend_ce");
+  }
+  gl.uniform1f(blend_location, blend_ce);
 }
 
 let change_color = false;
@@ -129,10 +132,13 @@ function renderLoop(gl, program, wasm) {
   // Update the hue of active blocks
   if (change_color) {
     color_shift += 1.0 / 60.0;
-    let location = gl.getUniformLocation(program, "color_shift");
-    gl.uniform1f(location, color_shift);
+    if (!color_location) {
+      color_location = gl.getUniformLocation(program, "color_shift");
+    }
+    gl.uniform1f(color_location, color_shift);
     change_color = false;
   }
+  let color_location = null;
 
   // Redraw the frame
   draw(gl);
@@ -166,9 +172,15 @@ function bigBang() {
 }
 
 // Updates the "grid_dimensions" ivec2 uniform in the shader
+let grid_dimensions_location = null;
 function updateUniformGridDimension(webgl, program, width, height) {
-  let location = webgl.getUniformLocation(program, "grid_dimensions");
-  webgl.uniform2i(location, width, height);
+  if (!grid_dimensions_location) {
+    grid_dimensions_location = webgl.getUniformLocation(
+      program,
+      "grid_dimensions",
+    );
+  }
+  webgl.uniform2i(grid_dimensions_location, width, height);
 }
 
 // Calculate the grid dimensions from the canvas size
@@ -192,6 +204,7 @@ function calculateGridDimensions(canvas) {
   return [width, height];
 }
 
+let data_size = null;
 function updateActiveBlocks(gl, program, memory) {
   const height = universe.height();
   const width = universe.width();
@@ -199,11 +212,13 @@ function updateActiveBlocks(gl, program, memory) {
 
   let cells_block_index = gl.getUniformBlockIndex(program, "Cells");
   gl.uniformBlockBinding(program, cells_block_index, 1);
-  let data_size = gl.getActiveUniformBlockParameter(
-    program,
-    cells_block_index,
-    gl.UNIFORM_BLOCK_DATA_SIZE,
-  );
+  if (!data_size) {
+    data_size = gl.getActiveUniformBlockParameter(
+      program,
+      cells_block_index,
+      gl.UNIFORM_BLOCK_DATA_SIZE,
+    );
+  }
 
   // JS Idiocy to get the correct sized buffer
   let cell_buffer = new ArrayBuffer(data_size);
@@ -220,18 +235,21 @@ function updateActiveBlocks(gl, program, memory) {
   gl.bufferData(gl.UNIFORM_BUFFER, cells, gl.DYNAMIC_READ);
   gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, buffer_id);
 
-  // Connect the dots
+  // Connect the buffer to the block interface
   gl.bindBufferRange(
     gl.UNIFORM_BUFFER,
     cells_block_index,
     buffer_id,
     0,
-    data_size,
+    cells.byteLength,
   );
 }
 
+let time_location = null;
 function updateTimeUniform(gl, program, secs_elapsed) {
-  const time_location = gl.getUniformLocation(program, "time");
+  if (!time_location) {
+    time_location = gl.getUniformLocation(program, "time");
+  }
   gl.uniform1f(time_location, secs_elapsed);
 }
 
