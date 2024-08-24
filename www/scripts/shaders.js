@@ -399,8 +399,8 @@ PBRMat blend_materials(float x, PBRMat mat_a, PBRMat mat_b) {
 // 4 Cell states are packed into a single u32
 #define ID_PACK_RATIO 4u
 uint getCellValue(uint id) {
-    uint v_id = id / ID_PACK_RATIO / ID_PACK_RATIO;
-    uint u8_id = id / ID_PACK_RATIO;
+    uint v_id = id / (ID_PACK_RATIO * ID_PACK_RATIO);
+    uint u8_id = (id % (ID_PACK_RATIO * ID_PACK_RATIO)) / ID_PACK_RATIO;
     uint offset = id % ID_PACK_RATIO;
     offset = offset * 7u + offset;
     return getbits(cells[v_id][u8_id], offset, 8u);
