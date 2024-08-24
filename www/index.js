@@ -130,6 +130,7 @@ function renderLoop(gl, program, wasm) {
   updateTimeUniform(gl, program, time_elapsed);
 
   // Update the hue of active blocks
+  let color_location = null;
   if (change_color) {
     color_shift += 1.0 / 60.0;
     if (!color_location) {
@@ -138,7 +139,6 @@ function renderLoop(gl, program, wasm) {
     gl.uniform1f(color_location, color_shift);
     change_color = false;
   }
-  let color_location = null;
 
   // Redraw the frame
   draw(gl);
