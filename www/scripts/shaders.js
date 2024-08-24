@@ -123,8 +123,6 @@ Light lights[1] = Light[1](
 // UNIFORMS //
 //////////////
 
-// Cells
-uniform uint cells[2048];
 // The size of the screen in pixels
 uniform vec2 resolution;
 // Elapsed time in miliseconds 
@@ -137,6 +135,15 @@ uniform ivec2 grid_dimensions;
 uniform float blend_ce;
 // Color shift the active blocks
 uniform float color_shift;
+
+// Need to pack into a vector because the layout is 64 bit aligned
+// ergo u32's waste 75% of their memory on their stride
+// Cells are represented as u8s, packed 4 cells into a u32 and 4 u32's into 
+// a uvec4; implying that uvec4 cells[1024] holds 16,384 cells, enough for
+// 128x128 grids (this also fits on my iPhone's Uniform Block maz size limit)
+uniform Cells {
+    uniform uvec4 cells[1024];
+};
 
 /////////////
 // HELPERS //
@@ -392,10 +399,11 @@ PBRMat blend_materials(float x, PBRMat mat_a, PBRMat mat_b) {
 // 4 Cell states are packed into a single u32
 #define ID_PACK_RATIO 4u
 uint getCellValue(uint id) {
-    uint u8_id = uint(id) / ID_PACK_RATIO;
-    uint offset = uint(id) % ID_PACK_RATIO;
+    uint v_id = id / ID_PACK_RATIO / ID_PACK_RATIO;
+    uint u8_id = id / ID_PACK_RATIO;
+    uint offset = id % ID_PACK_RATIO;
     offset = offset * 7u + offset;
-    return getbits(cells[u8_id], offset, 8u);
+    return getbits(cells[v_id][u8_id], offset, 8u);
 }
 
 #define ALIVE 7u

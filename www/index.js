@@ -11,6 +11,7 @@ import {
 } from "./scripts/shaders.js";
 import init, { Universe } from "./wasm/wasm_game_of_life.js";
 
+let buffer_id = 0;
 async function run() {
   // Load the WASM so we can use the functions defined therein
   let wasm = await init();
@@ -25,6 +26,13 @@ async function run() {
   if (!canvas || !gl || !program) {
     return null;
   }
+
+  // Check the uniform limit of the OpenGL implementation
+  let max_uniforms = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS);
+  console.log(max_uniforms);
+
+  // Setup the Uniform Block that the cells reside in
+  buffer_id = gl.createBuffer();
 
   // Calculate the Game of Life cell grid dimensions
   initializeUniverse();
@@ -188,10 +196,38 @@ function updateActiveBlocks(gl, program, memory) {
   const height = universe.height();
   const width = universe.width();
   const cells_ptr = universe.cells();
-  const cells = new Uint32Array(memory.buffer, cells_ptr, (width * height) / 4);
 
-  let cells_location = gl.getUniformLocation(program, "cells");
-  gl.uniform1uiv(cells_location, cells);
+  let cells_block_index = gl.getUniformBlockIndex(program, "Cells");
+  gl.uniformBlockBinding(program, cells_block_index, 1);
+  let data_size = gl.getActiveUniformBlockParameter(
+    program,
+    cells_block_index,
+    gl.UNIFORM_BLOCK_DATA_SIZE,
+  );
+
+  // JS Idiocy to get the correct sized buffer
+  let cell_buffer = new ArrayBuffer(data_size);
+  let cells_data = new Uint32Array(
+    memory.buffer,
+    cells_ptr,
+    (width * height) / 4,
+  );
+  let cells = new Uint32Array(cell_buffer);
+  cells.set(cells_data);
+
+  // Bind the buffer to the bind-point, and buffer in the cell data
+  gl.bindBuffer(gl.UNIFORM_BUFFER, buffer_id);
+  gl.bufferData(gl.UNIFORM_BUFFER, cells, gl.DYNAMIC_READ);
+  gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, buffer_id);
+
+  // Connect the dots
+  gl.bindBufferRange(
+    gl.UNIFORM_BUFFER,
+    cells_block_index,
+    buffer_id,
+    0,
+    data_size,
+  );
 }
 
 function updateTimeUniform(gl, program, secs_elapsed) {
