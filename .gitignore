@@ -15,3 +15,7 @@ nohup.out
 
 # Ignore the local log directory
 logs/
+
+# Ignore the results of `nix build`
+result/
+result

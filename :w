@@ -37,7 +37,7 @@
           ];
         };
       in
-        with pkgs; rec {
+        with pkgs; {
           ##############
           ## PACKAGES ##
           ##############
@@ -47,18 +47,15 @@
               cargo = pkgs.rustToolchain;
               rustc = pkgs.rustToolchain;
             };
-            # Compiles the WASM code used by the website, and the JS Bindings
             wasm = (pkgs.callPackage ./wasm-game-of-life {inherit pkgs rustPlatform;}).default;
-            # Simple copy of the website source into the Nix Store
             website = (pkgs.callPackage ./www {inherit pkgs;}).default;
-          in {
+          in rec {
             inherit wasm website;
-            # Combine them into a single Nix Store path
-            all = pkgs.symlinkJoin {
-              name = "gol_website";
+            all = pkgs.symLinkJoin {
+              name = "all";
               paths = [wasm website];
             };
-            default = packages.all;
+            default = self.all;
           };
 
           ############

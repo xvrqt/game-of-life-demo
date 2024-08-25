@@ -27,10 +27,6 @@ async function run() {
     return null;
   }
 
-  // Check the uniform limit of the OpenGL implementation
-  let max_uniforms = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS);
-  console.log(max_uniforms);
-
   // Setup the Uniform Block that the cells reside in
   buffer_id = gl.createBuffer();
 
