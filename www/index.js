@@ -66,6 +66,7 @@ function initializeUniverse() {
 }
 
 // Handles keyboard input
+let rainbow_mode = false;
 let onKeyDown = function (event) {
   if (event.key == " ") {
     paused = !paused;
@@ -81,6 +82,11 @@ let onKeyDown = function (event) {
   } else if (event.key == "c") {
     // Change colors
     change_color = true;
+  } else if (event.key == "r") {
+    rainbow_mode = !rainbow_mode;
+    if (rainbow_mode) {
+      change_color = true;
+    }
   }
 };
 
@@ -94,8 +100,8 @@ function updateBlendUniform(gl, program, time_elapsed) {
   gl.uniform1f(blend_location, blend_ce);
 }
 
-let change_color = false;
-let color_shift = 0.0;
+let change_color = true;
+let color_shift = 2.0;
 let paused = false;
 // Timestamp of when the simulation began
 let start_time = Date.now();
@@ -132,7 +138,7 @@ function renderLoop(gl, program, wasm) {
       color_location = gl.getUniformLocation(program, "color_shift");
     }
     gl.uniform1f(color_location, color_shift);
-    change_color = false;
+    change_color = false || rainbow_mode;
   }
 
   // Redraw the frame

@@ -415,14 +415,16 @@ PBRMat getObjectMaterial(int type, int id) {
     if (type == OBJ_BLOCK) {
         uint cell = getCellValue(uint(id));
             PBRMat alive = materials[BLOCK_ACTIVE_MATERIAL]; 
-            vec3 color = rgb2hsv(alive.color);
-            color.r = 0.5 * sin(color_shift - PI/2.0) + 0.5;
-            vec3 fade_color = color;
+            float sin_at = sin(color_shift);
+            float cos_at = cos(color_shift);
+            float angle = (atan(sin_at, cos_at) / (2.0 * PI)) + 0.5;
+            vec3 color = vec3(angle, 0.9, 0.9);
             alive.color = hsv2rgb(color);
             
             PBRMat fade = materials[BLOCK_ACTIVE_MATERIAL];
-            fade_color.r = 0.5 * cos(color_shift - PI/2.0) + 0.5;
-            fade.color = hsv2rgb(fade_color);
+            color.r += 0.05;
+            color.r = fract(color.r);
+            fade.color = hsv2rgb(color);
 
             PBRMat dead = materials[BLOCK_MATERIAL];
 
@@ -431,20 +433,13 @@ PBRMat getObjectMaterial(int type, int id) {
         } else if (cell == DEAD) {
             material = dead;
         } else {
-            PBRMat a = materials[BLOCK_ACTIVE_MATERIAL]; 
-            vec3 color = rgb2hsv(a.color);
-            color.r = 0.5 * sin(color_shift - PI) + 0.5;
-            a.color = hsv2rgb(color);
-            PBRMat c = materials[BLOCK_ACTIVE_MATERIAL]; 
-            
-            PBRMat b = materials[BLOCK_MATERIAL]; 
             float blend = clamp(blend_ce, 0.0, 1.0);
             if (cell == 1u) { // Growing
                 if (blend < 0.85) {
-                  blend = mix(0.0, 0.85, blend);
+                  blend = mix(0.0, 0.5, blend);
                   material = blend_materials(blend, dead, fade);
                 } else { 
-                  blend = mix(0.85, 1.0, blend);
+                  blend = mix(0.5, 1.0, blend);
                   material = blend_materials(blend, fade, alive); 
                 }
             } else { // Dying 
