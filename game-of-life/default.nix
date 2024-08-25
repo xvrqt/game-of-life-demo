@@ -1,12 +1,18 @@
 {
   pkgs,
-  rustPlatform,
+  buildInputs,
   ...
 }: let
   pkgName = "game_of_life";
 
   # Rust Settings
   rust_src = ./.;
+
+  # Setup the Rust Toolchain to use
+  rustPlatform = pkgs.makeRustPlatform {
+    cargo = pkgs.rustToolchain;
+    rustc = pkgs.rustToolchain;
+  };
 
   # WASM Settings
   wasm_target = "wasm32-unknown-unknown";
@@ -19,20 +25,7 @@ in {
     version = "1.0.0";
     src = rust_src;
 
-    buildInputs = with pkgs; [
-      # Rust Nightly Toolchain
-      rustToolchain
-
-      # Required to take WASM targets and create JS bindings
-      wasm-bindgen-cli
-
-      # Used to build the crate with wasm-pack
-      rustPlatform.cargoSetupHook
-      rustPlatform.cargoBuildHook
-
-      cargo-generate
-      llvmPackages.bintools
-    ];
+    nativeBuildInputs = buildInputs ++ [rustPlatform.cargoSetupHook rustPlatform.cargoBuildHook];
 
     # Rust Env Variables
     RUST_LOG = "debug";

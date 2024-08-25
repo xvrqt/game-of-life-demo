@@ -18,6 +18,7 @@
   }:
     flake-utils.lib.eachDefaultSystem (
       system: let
+        pkgName = "game-of-life";
         # Used to ensure we build our Rust packages with Nightly
         rustToolchainFile = ./rust-toolchain.toml;
         rustToolchainSettings = {
@@ -36,21 +37,28 @@
             rustToolchain.default
           ];
         };
+        # Directories
+        web_dir = "www";
+        wasm_dir = "game-of-life";
+        # Build inputs used by dev shells, and packages alike
+        buildInputs = [
+          # Rust Nightly Toolchain
+          pkgs.rustToolchain
+
+          # Required to create the WASM targets, and pack them for web
+          pkgs.wasm-bindgen-cli
+          pkgs.llvmPackages.bintools
+        ];
       in
         with pkgs; rec {
           ##############
           ## PACKAGES ##
           ##############
           packages = let
-            # Build with a custom Rust builder
-            rustPlatform = pkgs.makeRustPlatform {
-              cargo = pkgs.rustToolchain;
-              rustc = pkgs.rustToolchain;
-            };
             # Compiles the WASM code used by the website, and the JS Bindings
-            wasm = (pkgs.callPackage ./wasm-game-of-life {inherit pkgs rustPlatform;}).default;
+            wasm = (pkgs.callPackage (./. + "/${wasm_dir}") {inherit pkgs buildInputs;}).default;
             # Simple copy of the website source into the Nix Store
-            website = (pkgs.callPackage ./www {inherit pkgs;}).default;
+            website = (pkgs.callPackage (./. + "/${web_dir}") {inherit pkgs;}).default;
           in {
             inherit wasm website;
             # Combine them into a single Nix Store path
@@ -64,41 +72,11 @@
           ############
           ## SHELLS ##
           ############
-          devShells = let
-          in
-            mkShell {
-              buildInputs = [
-                # Rust Nightly Toolchain
-                rustToolchain
+          devShells = import ./shell.nix {inherit pkgs web_dir wasm_dir buildInputs;};
 
-                # Required to create the WASM targets, and pack them for web
-                wasm-bindgen-cli
-
-                llvmPackages.bintools
-
-                # Local Webserver
-                python3
-              ];
-
-              CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER = "lld";
-
-              shellHook = ''
-                project_directory=$(pwd)
-                clear
-                if pgrep -x python3 >> /dev/null
-                then
-                  echo "Server already running."
-                else
-                  # Start the server, set a trap on exit
-                  python3 -m http.server 6969 -d ./www > logs/server.log 2>&1 &
-                  WEB_PID=$!
-                  # Clean up the server on exit
-                  trap "kill -9 $WEB_PID" EXIT
-                fi
-                # Convenience function
-                alias rebuild-wasm='wasm-pack build $project_directory/wasm-game-of-life --target web --out-dir $project_directory/www/wasm'
-              '';
-            };
+          #############
+          ## MODULES ##
+          #############
           nixosModules = {
             lib,
             config,
@@ -130,7 +108,7 @@
 
             config = {
               # Add the website to the system's packages
-              environment.systemPackages = [website];
+              environment.systemPackages = [packages.default];
 
               # Configure a virtual host on nginx
               services.nginx.virtualHosts.${domain} = lib.mkIf cfgcheck {
@@ -138,7 +116,7 @@
                 enableACME = true;
                 acmeRoot = null;
                 locations."/" = {
-                  root = "${website}";
+                  root = "${packages.default}";
                 };
               };
             };
