@@ -77,7 +77,7 @@
           #############
           ## MODULES ##
           #############
-          nixosModules = {
+          nixosModules.default = {
             lib,
             config,
             ...
