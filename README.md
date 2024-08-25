@@ -1,6 +1,8 @@
 # Game of Life
 Webpage that hosts a version of Conway's Game of Life, realized in Rust+WASM, and rendered with WebGL.
 
+Check it out: [https://gol.xvrqt.com](https://gol.xvrqt.com)
+
 ## Purpose
 I wanted to learn how to transpile Rust into WASM code, and then use that code in a website. Big thanks to [The Rust-WASM Book](https://rustwasm.github.io/book/) for such a great guide.
 I also was able to refresh my WebGL skills, and spent time implementing a ray-marched renderinding of the Game of Life, and improving my BRDF's from Blinn-Phong to Cook-Torrance.
@@ -11,11 +13,11 @@ Lastly, I wrapped it all up in a Nix Flake which properly builds and deploys the
 
 `c` -> Hold to change the color of the active cells
 
+`cursor` -> Light follows the cursor position in the canvas
+
 `<space>` -> Pause the simulation (but not the animation)
 
 `<enter>` -> Restart the simulation (will auto-restart after a few seconds if the universe is completely dead)
-
-`cursor` -> Light follows the cursor position in the canvas
 
 ## Development
 Clone this directory.
