@@ -69,13 +69,12 @@
             mkShell {
               buildInputs = [
                 # Rust Nightly Toolchain
-                ((rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {extensions = ["rust-src"];})
+                rustToolchain
 
                 # Required to create the WASM targets, and pack them for web
-                wasm-pack
-                cargo-generate
-                llvmPackages.bintools
                 wasm-bindgen-cli
+
+                llvmPackages.bintools
 
                 # Local Webserver
                 python3
@@ -85,7 +84,6 @@
 
               shellHook = ''
                 project_directory=$(pwd)
-
                 clear
                 if pgrep -x python3 >> /dev/null
                 then
