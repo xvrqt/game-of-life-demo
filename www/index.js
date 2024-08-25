@@ -26,7 +26,6 @@ async function run() {
   if (!canvas || !gl || !program) {
     return null;
   }
-  console.log("Hello, girls!");
 
   // Setup the Uniform Block that the cells reside in
   buffer_id = gl.createBuffer();
