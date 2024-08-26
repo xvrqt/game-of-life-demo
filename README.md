@@ -9,9 +9,11 @@ I also was able to refresh my WebGL skills, and spent time implementing a ray-ma
 Lastly, I wrapped it all up in a Nix Flake which properly builds and deploys the website to my server, and provides a development environment. I really leveled up my ability to use Flakes from solely using them for configuration of NixOS Modules, to now building and deploying my own non-trivial pacakages.
 
 ## Usage
-`+/-` -> Increases/Decreases the number of cells in the Game of Life
-
 `c` -> Hold to change the color of the active cells
+
+`r` -> Toggle 'rainbow mode' which will shift the colors over time 
+
+`+/-` -> Increases/Decreases the number of cells in the Game of Life
 
 `cursor` -> Light follows the cursor position in the canvas
 
